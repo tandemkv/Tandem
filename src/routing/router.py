@@ -29,10 +29,14 @@ def _classifier():
     return PromptClassifier()
 
 
-def analyze(prompt: str) -> dict:
-    """Return task, task confidence, complexity and its component scores."""
+def _validate_prompt(prompt):
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must be nonempty text")
+
+
+def analyze(prompt: str) -> dict:
+    """Return task, task confidence, complexity and its component scores."""
+    _validate_prompt(prompt)
     return _classifier()(prompt)
 
 
@@ -42,6 +46,7 @@ def route(prompt: str, mode: str = "task", *, threshold: float = 0.5, task_model
     task: map NVIDIA's predicted task label through TASK_MODELS.
     complexity: choose qwen at or above threshold, otherwise smollm.
     threshold applies only to complexity mode. Both modes use one cached model.
+    Classifier loading or inference failures fall back to qwen.
     """
     if mode not in ("task", "complexity"):
         raise ValueError("mode must be 'task' or 'complexity'")
@@ -50,7 +55,11 @@ def route(prompt: str, mode: str = "task", *, threshold: float = 0.5, task_model
         or not math.isfinite(threshold) or not 0 <= threshold <= 1.2
     ):
         raise ValueError("threshold must be a finite number between 0 and 1.2")
-    result = analyze(prompt)
+    _validate_prompt(prompt)
+    try:
+        result = analyze(prompt)
+    except Exception:
+        return "qwen"
     if mode == "task":
         if task_models is None:
             return TASK_MODELS[result["task"]]
