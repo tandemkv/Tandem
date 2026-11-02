@@ -1,5 +1,5 @@
-# Project Name Source Code
+# Tandem Source Code
 
-The folders and files for this project are as follows:
-
-...
+- `experiments/`: same-model KV cache replay experiments.
+- [`routing/`](routing/README.md): local `route(prompt, mode="task" | "complexity")`
+  returning `"qwen"` or `"smollm"`, without invoking either target model.
