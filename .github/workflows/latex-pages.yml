@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -22,66 +22,17 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Restore PDF cache
-        uses: actions/cache@v5
-        with:
-          path: build-pdf
-          key: pdf-cache-${{ github.run_id }}
-          restore-keys: |
-            pdf-cache-
-      - name: Seed PDF cache from committed PDFs
+      - name: Select all documents
         run: |
-          # The committed pdfs/ directory is the source of truth, not the
-          # Actions cache. A cache miss (eviction, 7-day expiry, size limit)
-          # must never let the later rsync --delete wipe committed PDFs.
-          mkdir -p build-pdf
-          if [ -d pdfs ]; then
-            rsync -av --ignore-existing pdfs/ build-pdf/
-          fi
-      - name: Get changed LaTeX files
-        id: latex-files
-        run: |
-          BASE=${{ github.event.before }}
-          [ -z "$BASE" ] && BASE=HEAD^
-
-          # Every file under docs/ and refs/ is a candidate, not just .tex and
-          # .md: a change to a shared \input, a figure or the bibliography has
-          # to rebuild the documents that read it. Which documents those are is
-          # decided by select_docs.py from the recorded dependency graph, so no
-          # filtering by extension happens here.
-          SCOPE=(':(glob)docs/**' ':(glob)refs/**' 'Makefile'
-                 ':(glob).github/workflows/latex-pages.yml'
-                 ':(glob).github/scripts/**')
-
-          CHANGED_FILES=$(git diff --name-only --diff-filter=d "$BASE" "${{ github.sha }}" -- "${SCOPE[@]}" | xargs)
-          DELETED_FILES=$(git diff --name-only --diff-filter=D "$BASE" "${{ github.sha }}" -- "${SCOPE[@]}" | xargs)
-
-          echo "Changed files: $CHANGED_FILES"
-          echo "Deleted files: $DELETED_FILES"
-          echo "DELETED_FILES=$DELETED_FILES" >> $GITHUB_ENV
-
+          # A complete build keeps Pages correct without committing generated
+          # files to protected main or relying on an Actions cache surviving.
           BUILD_DOCS=$(python3 .github/scripts/select_docs.py \
-                         --changed $CHANGED_FILES \
-                         --deleted $DELETED_FILES \
-                         --manifest .pdf-deps.json --root . | xargs)
-
-          echo "Documents to build: $BUILD_DOCS"
-          echo "BUILD_DOCS=$BUILD_DOCS" >> $GITHUB_ENV
-
-          CHANGED_FILENAMES=$(for file in $BUILD_DOCS; do basename "$file"; done | xargs)
-          echo "CHANGED_FILENAMES=$CHANGED_FILENAMES" >> $GITHUB_ENV
-
-          FILE_COUNT=$(echo "$CHANGED_FILENAMES" | wc -w)
-          if [ "$FILE_COUNT" -gt 1 ]; then
-            PLURAL_S='s'
-          else
-            PLURAL_S=''
-          fi
-          echo "PLURAL_S=$PLURAL_S" >> $GITHUB_ENV
+            --changed .github/workflows/latex-pages.yml --root . | xargs)
+          echo "BUILD_DOCS=$BUILD_DOCS" >> "$GITHUB_ENV"
       # Installing these with apt takes ~126s, almost all of it unpacking
       # rather than downloading, so caching the installed files (not the
       # .debs) is what saves time. Pinned to a commit: this template is
-      # forked widely and the job has contents: write.
+      # forked widely.
       # texlive-full is avoided deliberately; it is far larger than needed.
       # pandoc drives the Markdown -> PDF rule in the Makefile.
       - name: Install TeX Live and pandoc
@@ -158,33 +109,6 @@ jobs:
           # Drop manifest entries for documents that no longer exist
           python3 .github/scripts/record_deps.py --prune .pdf-deps.json .
         #continue-on-error: true # Job continues even if this step fails
-      - name: Sync PDFs for TA review
-        run: |
-          rm -rf pdfs
-          mkdir -p pdfs
-          rsync -av --delete build-pdf/ pdfs/
-      - name: Commit PDFs to repo
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add pdfs .pdf-deps.json
-          if git diff --cached --quiet; then
-            echo "No PDF changes to commit"
-          else
-            git commit -m "Update generated PDFs for review"
-            # Another docs push may have landed while we were compiling.
-            for attempt in 1 2 3; do
-              if git push origin HEAD:main; then
-                echo "Pushed PDFs on attempt $attempt"
-                exit 0
-              fi
-              echo "Push rejected; rebasing onto latest main (attempt $attempt)"
-              git pull --rebase origin main
-            done
-            echo "Could not push PDFs after 3 attempts"
-            exit 1
-          fi
       - name: Prepare site
         run: |
           set -euo pipefail
@@ -196,13 +120,12 @@ jobs:
           # Copy PDFs preserving structure
           rsync -av build-pdf/ public/
 
-          # Build the index. This runs after the PDFs are committed, so the
-          # per-document timestamps come from that commit.
+          # Publish the generated PDFs without writing to protected main.
           python3 .github/scripts/build_index.py \
             --public public \
             --template site/index.html \
             --output public/index.html \
-            --tracked-dir pdfs
+            --tracked-dir build-pdf
 
           # Copy static assets
           cp site/style.css public/
