@@ -1,224 +1,558 @@
-\documentclass[12pt,titlepage]{article}
-\usepackage[margin=1in]{geometry}
-\usepackage{booktabs,tabularx,longtable,amsmath}
-\setlength{\emergencystretch}{3em}
+\documentclass[12pt, titlepage]{article}
+
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks,
+    citecolor=blue,
+    filecolor=black,
+    linkcolor=red,
+    urlcolor=blue
+}
+\usepackage[round]{natbib}
+
+\input{../Comments.text}
 \input{../Common.text}
-\newcommand{\case}[3]{\subsubsection{#1: #2}\label{test:#1}\noindent\textbf{Requirements:} #3.\par}
+
 \begin{document}
-\title{System Verification and Validation Plan for \progname}
+
+\title{System Verification and Validation Plan for \progname{}} 
 \author{\authname}
-\date{November 2, 2026}
+\date{\today}
+	
 \maketitle
+
 \pagenumbering{roman}
+
 \section*{Revision History}
 
-\noindent\begin{tabularx}{\textwidth}{llX}
-\toprule Date & Version & Notes\\\midrule
-2026-11-02 & 0.1 & Initial cross-model KV prediction plan; proposed procedures, pending team review and setup decisions.\\\bottomrule
+\begin{tabularx}{\textwidth}{p{3cm}p{2cm}X}
+\toprule {\bf Date} & {\bf Version} & {\bf Notes}\\
+\midrule
+Date 1 & 1.0 & Notes\\
+Date 2 & 1.1 & Notes\\
+\bottomrule
 \end{tabularx}
-\tableofcontents
+
+~\\
+\wss{The intention of the VnV plan is to increase confidence in the software.
+However, this does not mean listing every verification and validation technique
+that has ever been devised.  The VnV plan should also be a \textbf{feasible}
+plan. Execution of the plan should be possible with the time and team available.
+If the full plan cannot be completed during the time available, it can either be
+modified to ``fake it'', or a better solution is to add a section describing
+what work has been completed and what work is still planned for the future.}
+
+\wss{The VnV plan is typically started after the requirements stage, but before
+the design stage.  This means that the sections related to unit testing cannot
+initially be completed.  The sections will be filled in after the design stage
+is complete.  the final version of the VnV plan should have all sections filled
+in.}
+
 \newpage
-\pagenumbering{arabic}
+
+\tableofcontents
+
+\listoftables
+\wss{Remove this section if it isn't needed}
+
+\listoffigures
+\wss{Remove this section if it isn't needed}
+
+\newpage
+
 \section{Symbols, Abbreviations, and Acronyms}
 
-\noindent\begin{tabularx}{\textwidth}{lX}
-\toprule Term & Meaning\\\midrule
-KV & Attention key and value tensors.\\
-SRS & Software Requirements Specification; requirement IDs below refer to the Volere SRS.\\
-TTFT & Time from request arrival to first returned token.\\
-p95 & 95th percentile.\\
-Native & Selected target model using the serving engine without Tandem prediction.\\
-Setup & Exact model pair, predictor, alignment, precision, software and hardware configuration.\\\bottomrule
-\end{tabularx}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l l} 
+  \toprule		
+  \textbf{symbol} & \textbf{description}\\
+  \midrule 
+  T & Test\\
+  \bottomrule
+\end{tabular}\\
+
+\wss{symbols, abbreviations, or acronyms --- you can simply reference the SRS
+  \citep{SRS} tables, if appropriate}
+
+\wss{Remove this section if it isn't needed}
+
+\newpage
+
+\pagenumbering{arabic}
+
+This document ... \wss{provide an introductory blurb and roadmap of the
+  Verification and Validation plan}
 
 \section{General Information}
+
 \subsection{Summary}
-Tandem predicts target-model KV from source-model KV for shared conversation history. After validating the predicted cache, it loads that cache, prefills the remaining target tokens and decodes with the router-selected target model. This plan tests prediction, output consistency, serving integration and measured benefit on one server. It describes future work; no test result or setup approval is asserted here.
+
+\wss{Say what software is being tested.  Give its name and a brief overview of
+  its general functions.}
 
 \subsection{Objectives}
-The priorities are to preserve the selected model's behaviour and request isolation, demonstrate reduced target-prefix computation and net latency, and retain safe native processing. KV error and downstream output quality are evaluated separately. A small tensor error does not establish acceptable generated output.
 
-Base-model training, router development, multi-server execution and universal correctness across all models/prompts are outside scope. Third-party components are tested at Tandem's integration boundaries. Their entire implementations are not reverified. Performance conclusions apply only to the recorded workloads and supported setups.
+\wss{State what is intended to be accomplished.  The objective will be around
+  the qualities that are most important for your project.  You might have
+  something like: ``build confidence in the software correctness,''
+  ``demonstrate adequate usability.'' etc.  You won't list all of the qualities,
+  just those that are most important.}
+
+\wss{You should also list the objectives that are out of scope.  You don't have 
+the resources to do everything, so what will you be leaving out.  For instance, 
+if you are not going to verify the quality of usability, state this.  It is also 
+worthwhile to justify why the objectives are left out.}
+
+\wss{The objectives are important because they highlight that you are aware of 
+limitations in your resources for verification and validation.  You can't do everything, 
+so what are you going to prioritize?  As an example, if your system depends on an 
+external library, you can explicitly state that you will assume that external library 
+has already been verified by its implementation team.}
 
 \subsection{Custom Documents}
-The proposed Machine Learning Model Report should record model-pair selection, predictor architecture, alignment, fitting procedure, data splits and limitations. The existing proposal's statement that training does not apply needs review because predictor fitting is now in scope. Instructor approval remains pending. The proposed Performance Report will contain timing distributions, throughput, resource measurements, uncertainty and negative results; the V\&V Report will use this evidence when assessing requirements.
+
+\wss{Summarize the CDs (Custom Documents) that were tackled by this project.  CDs 
+can include usability testing, code walkthroughs, user documentation, formal
+proof, GenderMag personas, Design Thinking, etc.  CDs should have already
+been approved by the course instructor as included in your problem statement.
+You can use a pull request to update your CDs (in TeamComposition.csv or
+Repos.csv) if your plan changes as a result of the VnV planning exercise.}
 
 \subsection{Relevant Documentation}
-The \href{../SRS-Volere/SRS.tex}{Volere SRS} supplies requirement IDs, recovery rules and draft acceptance criteria. The \href{../ProblemStatementAndGoals/ProblemStatement.tex}{Problem Statement} supplies project goals and scope. The \href{../DevelopmentPlan/DevelopmentPlan.tex}{Development Plan} supplies review roles and proposed Python tooling; its tree-attention and KV-Promise descriptions require alignment with cross-model prediction. The Hazard Analysis will be reviewed for cache isolation and lifecycle risks. MG/MIS documents will supply module boundaries for the later unit-test plan. Reviewers will use \href{../Checklists/VnV-Checklist.tex}{the V\&V checklist}.
 
-The \href{../../src/experiments/LOCAL_CACHE_RESULTS.md}{local cache replay results} provide preliminary same-model cache controls and planted-code fixtures. They do not qualify cross-model prediction or establish Linux GPU serving performance. Existing routing tests can support integration checks, but router development remains outside this plan's scope.
+\wss{Reference relevant documentation.  This will definitely include your SRS
+  and your other project documents (design documents, like MG, MIS, etc).  You
+  can include these even before they are written, since by the time the project
+  is done, they will be written.  You can create BibTeX entries for your
+  documents and within those entries include a hyperlink to the documents.}
+
+\citet{SRS}
+
+\wss{Don't just list the other documents.  You should explain why they are relevant and 
+how they relate to your VnV efforts.}
 
 \section{Plan}
-\subsection{Verification and Validation Team}
-The team comprises Justin Kwinecki, Zayed Umer, William Pol, Manav Patel and Musab Mondal. Named assignments will be recorded before execution; the following responsibilities are proposed rather than assigned.
 
-\noindent\begin{tabularx}{\textwidth}{lX}
-\toprule Role & Responsibility\\\midrule
-Deliverable lead & Coordinate scope, traceability and unresolved decisions.\\
-Prediction test owner & Prepare disjoint datasets, offline reference KV and output checks.\\
-Integration test owner & Test validation, loading, fallback, isolation and cleanup.\\
-Measurement owner & Freeze manifests, run matched trials and report uncertainty.\\
-Independent reviewer & Review cases and evidence without reviewing their own work alone.\\\bottomrule
-\end{tabularx}
+\wss{Introduce this section.  You can provide a roadmap of the sections to
+  come.}
+
+\subsection{Verification and Validation Team}
+
+\wss{Your teammates.  Maybe your supervisor.
+  You should do more than list names.  You should say what each person's role is
+  for the project's verification.  A table is a good way to summarize this information.}
 
 \subsection{SRS Verification}
-A reviewer will walk through a valid switch, a rejected cache, a failed prediction and a cancelled shared-cache request. For each, check that inputs, expected outcomes and requirement IDs are unambiguous. Review OI1--OI3 before final tests, especially whether native repeatability supports the draft output tolerances. Record contradictions and decisions as repository issues; thresholds must not be changed to rescue final-test failures.
+
+\wss{List any approaches you intend to use for SRS verification.  This may
+  include ad hoc feedback from reviewers, like your classmates (like your
+  primary reviewer), or you may plan for something more rigorous/systematic.}
+
+\wss{If you have a supervisor for the project, you shouldn't just say they will
+read over the SRS.  You should explain your structured approach to the review.
+Will you have a meeting?  What will you present?  What questions will you ask?
+Will you give them instructions for a task-based inspection?  Will you use your
+issue tracker?}
+
+\wss{Maybe create an SRS checklist?}
 
 \subsection{Design Verification}
-Once the design is available, trace source KV through alignment, prediction, validation, loading, suffix prefill and cleanup. Check cache ownership, versioning, host-granted sharing permissions, asynchronous readiness and the boundary before first output where one native restart is allowed. Reviewers will record findings and link fixes before qualifying a setup.
+
+\wss{Plans for design verification}
+
+\wss{The review will include reviews by your classmates}
+
+\wss{Create a checklists?}
 
 \subsection{Verification and Validation Plan Verification}
-An independent team member will check each case for a reproducible fixture, observable oracle, requirement link and feasible resource budget. Peer/TA feedback will be tracked through issues. Deliberately wrong prefix positions, bypassed permission checks and omitted prediction timing should cause the corresponding checks to fail; these are proposed checks of the test harness, not claims that mutation tests already exist.
+
+\wss{The verification and validation plan is an artifact that should also be
+verified.  Techniques for this include review and mutation testing.}
+
+\wss{The review will include reviews by your classmates}
+
+\wss{Create a checklists?}
 
 \subsection{Implementation Verification}
-Use peer code review, static checks and the system cases below. Review tensor layouts, token accounting, error paths and cache ownership explicitly. Each executed case will retain a commit ID, setup manifest, fixture ID, result and evidence location. Classify outcomes as pass, fail, blocked or inconclusive; an unavailable GPU or missing predictor is not a pass.
+
+\wss{You should at least point to the tests listed in this document and the unit
+  testing plan.}
+
+\wss{In this section you would also give any details of any plans for static
+  verification of the implementation.  Potential techniques include code
+  walkthroughs, code inspection, static analyzers, etc.}
+
+\wss{The final class presentation in CAS 741 could be used as a code
+walkthrough.  There is also a possibility of using the final presentation (in
+CAS741) for a partial usability survey.}
 
 \subsection{Automated Testing and Verification Tools}
-Use Python with pytest for fixtures, parameterized checks and fault injection; Ruff for PEP~8-oriented linting/formatting; and pytest-cov for line/branch coverage of Tandem-owned Python code. Coverage reports identify untested validation and recovery branches, without treating a coverage percentage as proof of correctness. These are planned checks; the existing documentation CI does not establish that code CI is configured.
 
-CPU checks should run on pull requests. GPU correctness and timing runs require the pinned supported environment and will run before setup qualification and release. Use a monotonic clock for request timings, synchronized GPU events for device stages where applicable, and framework/driver memory counters for direct memory measurements. Record synchronization and instrumentation overhead. CPU or local MPS results cannot substitute for supported GPU performance trials.
+\wss{What tools are you using for automated testing.  Likely a unit testing
+  framework and maybe a profiling tool, like ValGrind.  Other possible tools
+  include a static analyzer, make, continuous integration tools, test coverage
+  tools, etc.  Explain your plans for summarizing code coverage metrics.
+  Linters are another important class of tools.  For the programming language
+  you select, you should look at the available linters.  There may also be tools
+  that verify that coding standards have been respected, like flake9 for
+  Python.}
+
+\wss{If you have already done this in the development plan, you can point to
+that document.}
+
+\wss{The details of this section will likely evolve as you get closer to the
+  implementation.}
 
 \subsection{Software Validation}
-Ask an independent technical user to install the supported setup, run a model-switch example and identify whether prediction or fallback occurred. Record commands, errors, task completion and feedback. Present native-versus-Tandem output and timing evidence at the demonstration and ask whether the observed tradeoff meets the intended serving use. This activity is planned; no stakeholder participation or approval is assumed.
+
+\wss{If there is any external data that can be used for validation, you should
+  point to it here.  If there are no plans for validation, you should state that
+  here.}
+
+\wss{You might want to use review sessions with the stakeholder to check that
+the requirements document captures the right requirements.  Maybe task based
+inspection?}
+
+\wss{For those capstone teams with an external supervisor, the Rev 0 demo should 
+be used as an opportunity to validate the requirements.  You should plan on 
+demonstrating your project to your supervisor shortly after the scheduled Rev 0 demo.  
+The feedback from your supervisor will be very useful for improving your project.}
+
+\wss{For teams without an external supervisor, user testing can serve the same purpose 
+as a Rev 0 demo for the supervisor.}
+
+\wss{This section might reference back to the SRS verification section.}
 
 \section{System Tests}
-\subsection{Common Fixtures and Execution Rules}
-Before execution, freeze exact source/target model revisions, tokenizer/chat formats, predictor checkpoint and alignment, precision, engine/dependency versions, hardware, resource limits and seeds in a run manifest. Use public or synthetic conversations split by conversation group into fitting, development and final evaluation sets. Related prefixes/branches from one conversation must stay in the same split. Record dataset provenance and split IDs; do not fit or tune on final evaluation.
 
-Define fixture F1 as a two-turn synthetic conversation: system text ``Return only the code supplied in the notes'', shared history containing ``The code is EQBU'', and latest user text ``What is the code?''. Retain full rendered prompts and target token positions in explicitly enabled synthetic test traces. Native output is the behavioural oracle; EQBU is a task-success observation, not a guaranteed model response. Expand with fixed filler to short, medium and supported-limit histories, placing the code early, middle and late. Exact token counts, dataset size and supported model pair remain open decisions and must be fixed before execution.
-
-For each automatic case, start from a recorded clean configuration and capture output events, final status, reuse reason and relevant counters. Run positive controls as well as individual negative mutations. Correctness traces use synthetic/public data and a declared retention period; normal exports follow the privacy cases below.
+\wss{There should be text between all headings, even if it is just a roadmap of
+the contents of the subsections.}
 
 \subsection{Tests for Functional Requirements}
-\case{F01}{Request validation}{FR-01, FR-02}
-\textbf{Control:} Automatic. \textbf{Initial state:} Healthy engine, prediction disabled.
-\textbf{Input:} F1 with a known target; then separately remove a required field, use an unknown model, duplicate a request ID, set output cap to zero and exceed the declared token limit by one.
-\textbf{Expected:} The valid request preserves model, ordered prompt and settings. Invalid requests are rejected with reasons before generation or associated oversized allocation.
-\textbf{Procedure/oracle:} Inspect admission events, native-rendered tokens and allocation counters against the SRS Data Dictionary.
 
-\case{F02}{Prefix and cache eligibility}{FR-03, FR-04, SR-02}
-\textbf{Control:} Automatic. \textbf{Initial state:} Qualified setup and valid F1 prediction.
-\textbf{Input:} Positive control followed by independent changes to message order, system text, prefix positions, tokenizer/format, model/predictor/configuration versions, tensor shape, precision, readiness and finite values (NaN/infinity).
-\textbf{Expected:} Valid predictions are eligible; every incompatible or incomplete cache is blocked from loading. A valid request with an unusable optional cache follows native processing, or reports a resource/server failure if native processing is unavailable.
-\textbf{Procedure/oracle:} Compare the validation decision and actual load events; equal tensor dimensions alone must not permit reuse.
+\wss{Subsets of the tests may be in related, so this section is divided into
+  different areas.  If there are no identifiable subsets for the tests, this
+  level of document structure can be removed.}
 
-\case{F03}{Predict, load and prefill the suffix}{FR-05, FR-16}
-\textbf{Control:} Automatic GPU test. \textbf{Initial state:} Frozen base models, versioned predictor and held-out F1 variants.
-\textbf{Input:} Source KV with declared alignment and an uncached latest turn.
-\textbf{Expected:} Prediction uses source KV without constructing it through target-prefix prefill; accepted state covers the intended prefix and the suffix is processed once in order. Output passes A01.
-\textbf{Procedure/oracle:} Instrument actual target token work and load positions. Compute native target references offline, separately from the timed prediction path, and apply A01. Save architecture, fitting and parameter versions.
+\wss{Include a blurb here to explain why the subsections below
+  cover the requirements.  References to the SRS would be good here.}
 
-\case{F04}{Native path and recovery}{FR-06, FR-07, NFR-06}
-\textbf{Control:} Automatic fault injection. \textbf{Initial state:} Healthy engine.
-\textbf{Input:} F1 with prediction disabled, no source cache, unsupported pair, same-model turn and unshared history. Separately inject predictor and loader exceptions before output, then an execution failure after the first output event.
-\textbf{Expected:} Ordinary cases use native processing with native prefix caching retained. Recoverable pre-output failures permit at most one native restart under the same ID; a failed restart or post-output failure ends as failed without a mixed or duplicate answer. A later valid request completes if the engine is healthy.
-\textbf{Procedure/oracle:} Compare native output, restart counts, event order and final statuses to the SRS recovery rules.
+\subsubsection{Area of Testing1}
 
-\case{F05}{Concurrent lifecycle and cleanup}{FR-08, FR-09, FR-15, SR-03}
-\textbf{Control:} Automatic. \textbf{Initial state:} Two active requests sharing permitted cache state.
-\textbf{Input:} Complete one request while the other decodes; repeat with queued/running cancellation, timeout, forced failure and attempted cache eviction/replacement. Repeat for $N_{cycle}$ cycles.
-\textbf{Expected:} Events remain ordered under the correct ID; each accepted request has exactly one final status. Ended requests retain no private allocation, and active requests retain needed cache state and pass A01. Policy-retained reusable caches are accounted for separately.
-\textbf{Procedure/oracle:} Inspect allocation ownership and reference counts as well as measured memory; allocator-reserved memory alone is not a leak oracle. Check safe stopping points and timeout reasons using $T_{timeout}$.
+\wss{It would be nice to have a blurb here to explain why the subsections below
+  cover the requirements.  References to the SRS would be good here.  If a section
+  covers tests for input constraints, you should reference the data constraints
+  table in the SRS.}
+		
+\paragraph{Title for Test}
 
-\case{F06}{Configuration and qualification}{FR-13, FR-14, SR-05}
-\textbf{Control:} Automatic plus evidence review. \textbf{Initial state:} Unqualified setup.
-\textbf{Input:} Attempt enablement with absent/failed accuracy, isolation or recovery evidence; then with complete passing evidence. Change a model/predictor version and restart the server while retaining an old handle.
-\textbf{Expected:} Missing or failed evidence prevents approval; approved records identify splits, parameters and limits. Old/incompatible handles are blocked and untested combinations use native processing. Invalid settings are rejected.
-\textbf{Procedure/oracle:} Inspect qualification records and verify actual reuse decisions before and after configuration changes.
+\begin{enumerate}
 
-\case{F07}{Measurement and replay integrity}{FR-10, FR-11, FR-12, NFR-01, NFR-12, DR-02}
-\textbf{Control:} Automatic schema checks and manual report review.
-\textbf{Input:} A fixed batch containing success, fallback, rejection, cancellation and failure, replayed natively and with Tandem.
-\textbf{Expected:} IDs, versions, settings, arrivals and limits match; unexplained differences invalidate comparison. Reports preserve reasons, counts, units, actual prompt work, stage timings, output differences, memory and GPU-time measurements. Missing measurements have reasons rather than fabricated estimates. Codes match documented corrective actions.
-\textbf{Procedure/oracle:} Reconcile request/event records with the report, deliberately alter one replay setting to test mismatch detection, and verify that timed totals include prediction, validation and loading. Record offline development costs separately and document assumptions for any priced estimate.
+\item{test-id1\\}
+
+Control: Manual versus Automatic
+					
+Initial State: 
+					
+Input: 
+					
+Output: \wss{The expected result for the given inputs.  Output is not how you
+are going to return the results of the test.  The output is the expected
+result.}
+
+Test Case Derivation: \wss{Justify the expected value given in the Output field}
+					
+How test will be performed: 
+					
+\item{test-id2\\}
+
+Control: Manual versus Automatic
+					
+Initial State: 
+					
+Input: 
+					
+Output: \wss{The expected result for the given inputs}
+
+Test Case Derivation: \wss{Justify the expected value given in the Output field}
+
+How test will be performed: 
+
+\end{enumerate}
+
+\subsubsection{Area of Testing2}
+
+...
 
 \subsection{Tests for Nonfunctional Requirements}
-\case{A01}{KV and output accuracy}{NFR-05, FR-14, FR-16}
-\textbf{Control:} Automatic GPU comparison. \textbf{Input:} Held-out fixtures for each supported setup, including declared context limits.
-\textbf{Procedure:} First establish native repeatability. For keys and values separately, report $\|\widehat{K}-K\|_F$ and its ratio to $\|K\|_F$ per layer/cache group (likewise for values). A zero reference norm gives undefined relative error and a reported absolute error. Do not invent a KV-error pass threshold.
 
-Compare corresponding logits after identical preceding tokens, with identical masks. Require $|z_T-z_N|\leq\epsilon_a+\epsilon_r|z_N|$ for every compared finite score; unexpected nonfinite values fail. Then independently run greedy decoding and require identical tokens for $N_{decode}$ tokens or an earlier shared stop. Report first divergence and aggregate failures. Native instability blocks a reliable qualification conclusion. Sampling needs separate recorded qualification or native fallback. These draft limits require OI3 review before final evaluation.
+\wss{The nonfunctional requirements for accuracy will likely just reference the
+  appropriate functional tests from above.  The test cases should mention
+  reporting the relative error for these tests.  Not all projects will
+  necessarily have nonfunctional requirements related to accuracy.}
 
-\case{A02}{Privacy and text preservation}{SR-01, SR-04, SR-06, NFR-03}
-\textbf{Control:} Automatic. \textbf{Input:} F1 across different host-granted sharing groups; forged request-side permissions; concurrent branches whose private suffix alternates between ``secret-A'' and ``secret-B''. Add accents, non-Latin text, whitespace and delimiter variants.
-\textbf{Expected:} Unauthorized cache state is never used or exposed. Holding the victim request fixed, changing another branch's private content preserves victim logits/tokens under A01 with passing native controls. Rendered prompt tokens match native processing. Normal logs and exports contain no planted secrets, raw prompts, answers, KV or credentials.
-\textbf{Procedure/oracle:} Inspect cache access decisions, compare victim runs and scan normal exports using unique synthetic markers, including markers supplied in request-controlled fields.
+\wss{For some nonfunctional tests, you won't be setting a target threshold for
+passing the test, but rather describing the experiment you will do to measure
+the quality for different inputs.  For instance, you could measure speed versus
+the problem size.  The output of the test isn't pass/fail, but rather a summary
+table or graph.}
 
-\case{P01}{Latency, throughput and ordinary-serving overhead}{NFR-04, NFR-07, NFR-08}
-\textbf{Control:} Automatic GPU benchmark. \textbf{Input:} Preselected model-switch/shared-history workloads and separate same-model, unshared, disabled-prediction and missing-cache controls. Cover cold/warm caches, supported lengths and concurrency. Freeze workloads before final runs.
+\wss{Tests related to usability could include conducting a usability test and
+  survey.  The survey will be in the Appendix.}
 
-\textbf{Procedure:} Keep native prefix caching equally enabled. Match arrivals, routing, generation settings and resource limits. Record source-cache preparation and model-loading policy. Run $N_{warmup}$ untimed warmups and $N_{pairs}$ alternating timed pairs; use the same declared cache preparation for each arm. Timing includes queueing, retrieval, prediction, validation/loading, suffix prefill and decoding. Report median/p95 TTFT, end-to-end time, successful requests per second, prompt work, total GPU time and GPU time per completion. TTFT is missing for requests returning no tokens. Throughput spans first arrival to last final status and counts successful completions only.
+\wss{Static tests, review, inspections, and walkthroughs, will not follow the
+format for the tests given below.}
 
-Bootstrap complete paired trials $N_{boot}$ times with a recorded seed to obtain $C$ confidence intervals; individual requests in one trial are not independent repetitions. For positive native metrics, calculate percentage change relative to native. NFR-04 needs fewer computed prompt tokens and a TTFT-change interval wholly below zero on at least one preselected workload, with passing output checks and no extra failures. NFR-07 needs a throughput-change interval wholly above zero and an upper p95 TTFT-change bound no greater than $\delta$. For NFR-08, upper latency-change bounds must be at most $\delta$ and the lower throughput-change bound at least $-\delta$. Report every workload, including regressions and inconclusive intervals. Any additional-trial policy must be recorded before final evaluation; avoid repeatedly sampling merely until a favourable interval appears.
+\wss{If you introduce static tests in your plan, you need to provide details.
+How will they be done?  In cases like code (or document) walkthroughs, who will
+be involved? Be specific.}
 
-\case{D01}{Installation, supported limits and reproduction}{NFR-02, NFR-09, NFR-10, NFR-12, DR-01}
-\textbf{Control:} Manual task-based inspection with automated boundary checks.
-\textbf{Input:} Clean supported environment, release instructions and manifest; token/concurrency values at and just beyond published limits.
-\textbf{Expected:} An independent reviewer can install, run a native and prediction example, interpret fallback and reproduce basic/output checks. Boundary behaviour agrees with the documented support limits; unsupported setups are not presented as qualified.
-\textbf{Procedure:} Record all commands, deviations and errors. Compare hardware/load differences before interpreting repeated timing results. File unclear instructions and missing status-code explanations as issues.
+\subsubsection{Area of Testing1}
+		
+\paragraph{Title for Test}
+
+\begin{enumerate}
+
+\item{test-id1\\}
+
+Type: Functional, Dynamic, Manual, Static etc.
+					
+Initial State: 
+					
+Input/Condition: 
+					
+Output/Result: 
+					
+How test will be performed: 
+					
+\item{test-id2\\}
+
+Type: Functional, Dynamic, Manual, Static etc.
+					
+Initial State: 
+					
+Input: 
+					
+Output: 
+					
+How test will be performed: 
+
+\end{enumerate}
+
+\subsubsection{Area of Testing2}
+
+...
 
 \subsection{Traceability Between Test Cases and Requirements}
-This initial mapping covers the numbered FR, NFR, SR and documentation requirements used above. Review it against the approved SRS after scope changes; a mapped case is not evidence of a passing result.
-\begin{longtable}{@{}p{0.58\textwidth}p{0.34\textwidth}@{}}
-\toprule Requirements & Cases\\\midrule\endhead
-FR-01, FR-02 & F01\\
-FR-03, FR-04, SR-02 & F02\\
-FR-05, FR-16 & F03, A01\\
-FR-06, FR-07, NFR-06 & F04\\
-FR-08, FR-09, FR-15, SR-03 & F05\\
-FR-13, SR-05 & F06\\
-FR-14 & F06, A01, A02, F04\\
-FR-10, FR-11, FR-12, NFR-01, DR-02 & F07\\
-NFR-05 & A01\\
-NFR-03, SR-01, SR-04, SR-06 & A02\\
-NFR-04, NFR-07, NFR-08 & P01\\
-NFR-02, NFR-09, NFR-10, DR-01 & D01\\
-NFR-12 & F07, D01\\\bottomrule
-\end{longtable}
+
+\wss{Provide a table that shows which test cases are supporting which
+  requirements.}
 
 \section{Unit Test Description}
-Detailed module cases and module traceability are deferred until the MIS defines interfaces and state ownership. The following strategy guides that work without inventing completed design decisions.
+
+\wss{This section should not be filled in until after the MIS (detailed design
+  document) has been completed.}
+
+\wss{Reference your MIS (detailed design document) and explain your overall
+philosophy for test case selection.}  
+
+\wss{To save space and time, it may be an option to provide less detail in this section.  
+For the unit tests you can potentially layout your testing strategy here.  That is, you 
+can explain how tests will be selected for each module.  For instance, your test building 
+approach could be test cases for each access program, including one test for normal behaviour 
+and as many tests as needed for edge cases.  Rather than create the details of the input 
+and output here, you could point to the unit testing code.  For this to work, you code 
+needs to be well-documented, with meaningful names for all of the tests.}
+
 \subsection{Unit Testing Scope}
-Prioritize Tandem-owned prefix/alignment checks, predictor adapters, cache validation/loading, lifecycle handling and measurement calculations. Use small synthetic tensors and fake engine handles for CPU tests; GPU integration remains necessary for actual loading and generation. External model internals are outside unit scope.
+
+\wss{What modules are outside of the scope.  If there are modules that are
+  developed by someone else, then you would say here if you aren't planning on
+  verifying them.  There may also be modules that are part of your software, but
+  have a lower priority for verification than others.  If this is the case,
+  explain your rationale for the ranking of module importance.}
+
 \subsection{Tests for Functional Requirements}
-For each MIS access program, cover normal inputs, boundaries and each documented exception. Candidate checks include zero/nonfinite tensor handling, off-by-one suffix positions, stale versions, denied sharing, one-restart enforcement and final-status uniqueness. Deterministic fixtures must specify expected outputs independently of the implementation.
+
+\wss{Most of the verification will be through automated unit testing.  If
+  appropriate specific modules can be verified by a non-testing based
+  technique.  That can also be documented in this section.}
+
+\subsubsection{Module 1}
+
+\wss{Include a blurb here to explain why the subsections below cover the module.
+  References to the MIS would be good.  You will want tests from a black box
+  perspective and from a white box perspective.  Explain to the reader how the
+  tests were selected.}
+
+\begin{enumerate}
+
+\item{test-id1\\}
+
+Type: \wss{Functional, Dynamic, Manual, Automatic, Static etc. Most will
+  be automatic}
+					
+Initial State: 
+					
+Input: 
+					
+Output: \wss{The expected result for the given inputs}
+
+Test Case Derivation: \wss{Justify the expected value given in the Output field}
+
+How test will be performed: 
+					
+\item{test-id2\\}
+
+Type: \wss{Functional, Dynamic, Manual, Automatic, Static etc. Most will
+  be automatic}
+					
+Initial State: 
+					
+Input: 
+					
+Output: \wss{The expected result for the given inputs}
+
+Test Case Derivation: \wss{Justify the expected value given in the Output field}
+
+How test will be performed: 
+
+\item{...\\}
+    
+\end{enumerate}
+
+\subsubsection{Module 2}
+
+...
+
 \subsection{Tests for Nonfunctional Requirements}
-Test error-norm calculations against hand-computed tensors, including zero references; measurement aggregation against a small known event stream; and missing TTFT handling when no token is returned. GPU predictor/loading microbenchmarks explain stage overhead but do not replace P01.
+
+\wss{If there is a module that needs to be independently assessed for
+  performance, those test cases can go here.  In some projects, planning for
+  nonfunctional tests of units will not be that relevant.}
+
+\wss{These tests may involve collecting performance data from previously
+  mentioned functional tests.}
+
+\subsubsection{Module ?}
+		
+\begin{enumerate}
+
+\item{test-id1\\}
+
+Type: \wss{Functional, Dynamic, Manual, Automatic, Static etc. Most will
+  be automatic}
+					
+Initial State: 
+					
+Input/Condition: 
+					
+Output/Result: 
+					
+How test will be performed: 
+					
+\item{test-id2\\}
+
+Type: Functional, Dynamic, Manual, Static etc.
+					
+Initial State: 
+					
+Input: 
+					
+Output: 
+					
+How test will be performed: 
+
+\end{enumerate}
+
+\subsubsection{Module ?}
+
+...
+
 \subsection{Traceability Between Test Cases and Modules}
-Pending the MIS: assign each module its relevant system requirements, unit-test IDs and an owner, and document any excluded module with a rationale.
+
+\wss{Provide evidence that all modules have been considered.}
+				
+\bibliographystyle{plainnat}
+
+\bibliography{../../refs/References}
+
+\newpage
 
 \section{Appendix}
+
+This is where you can place additional information.
+
 \subsection{Symbolic Parameters}
-These values are inherited from the SRS draft, not newly approved thresholds. OI3 must be resolved before final tests.
 
-\noindent\begin{tabularx}{\textwidth}{llX}
-\toprule Symbol & Draft value & Purpose\\\midrule
-$\epsilon_a$ & 0.001 & Absolute logit tolerance.\\
-$\epsilon_r$ & 0.001 & Relative logit tolerance.\\
-$N_{decode}$ & 32 & Greedy comparison length.\\
-$N_{cycle}$ & 100 & Cleanup cycles.\\
-$T_{timeout}$ & 120 seconds & Default request timeout.\\
-$N_{warmup}$ & 3 & Untimed warmups.\\
-$N_{pairs}$ & 10 & Initial timed pairs.\\
-$N_{boot}$ & 2,000 & Bootstrap resamples.\\
-$C$ & 95\% & Confidence level.\\
-$\delta$ & 5\% & Allowed slowdown/loss.\\\bottomrule
-\end{tabularx}
+The definition of the test cases will call for SYMBOLIC\_CONSTANTS.
+Their values are defined in this section for easy maintenance.
 
-\subsection{Open Decisions and Next Steps}
-Before running this plan, resolve SRS OI1--OI3 and OI7: choose the model pair, predictor/alignment, dataset/split sizes, exact versions, supported token/concurrency limits and GPU budget; review draft tolerances on development data. Record seeds, additional-trial policy, trace retention and evidence locations. Assign named test owners and an independent reviewer. Align earlier scope documents under OI5/OI6 and confirm custom-document approval. First implement native controls and A01, then prediction/loading and failure tests; run performance qualification only after correctness and isolation pass.
+\subsection{Usability Survey Questions?}
 
-\subsection{Usability Inspection Questions}
-During D01 ask: Which setup is supported? How do you enable or disable prediction? Did this request reuse KV or fall back, and why? Where are the limitations and reproduction commands? Record misunderstandings and revise the instructions. No general end-user usability survey is planned for this server-side prototype.
+\wss{This is a section that would be appropriate for some projects.}
+
+\newpage{}
 
 \section{Appendix --- Generative AI Use Disclosure}
+
+\wss{ChatGPT (version 5) was used to brainstorm ideas for the template for this disclose section.}
+
 \subsection{AI Tools Used}
-OpenAI Codex assisted with this initial draft.
+
+\wss{Give the name of the AI tool(s) used and the version.}
+
 \subsection{How and Where Used}
-Codex replaced template instructions with proposed scope, review processes, system cases, traceability, unit-test strategy and appendices using repository documents and the user's clarification that Tandem performs cross-model KV prediction.
+
+\wss{Explain what the tool(s) were used for.  Examples include: brainstorming,
+explaining a technical concept, reviewing the document, generating or modifying
+text, generating or modifying diagrams, identifying errors or omissions or
+inconsistencies.}
+
+\wss{For each of the uses, identify which parts of the document were affected.}
+
+\wss{You do not need to report every interaction, but you should disclose the 
+uses that materially contributed to your work}
+
 \subsection{Verification of AI-Generated Content}
-The draft was cross-checked against the Volere SRS and repository checklist. Team review of feasibility, requirement coverage and proposed procedures remains pending. No experiments, stakeholder validation or qualification results were generated by this drafting work. The team remains responsible for the submitted document.
+
+\wss{\begin{itemize}
+    \item Describe how the team checked AI-generated or AI-assisted material
+    before including it in the document.
+    \item In particular, verify factual claims, technical assertions,
+    requirements, calculations, references, and other information for which an
+    AI system may produce incorrect or fabricated results.
+    \item \textbf{The team is responsible for the accuracy, completeness,
+consistency, and appropriateness of the submitted document, regardless of
+whether material was generated by a human or an AI system.}
+\end{itemize}}
+
+\newpage{}
 
 \section{Appendix --- Reflection}
-Pending team contributions after drafting and review: record what went well, difficulties and resolutions, and each member's required learning. For each learning area, identify two acquisition approaches and the member's chosen approach. Do not substitute proposed plans for personal experiences.
+
+\wss{This section is not required for CAS 741}
+
+The information in this section will be used to evaluate the team members on the
+graduate attribute of Lifelong Learning.
+
+\input{../Reflection.text}
+
+\begin{enumerate}
+  \item What went well while writing this deliverable? 
+  \item What pain points did you experience during this deliverable, and how
+    did you resolve them?
+  \item What knowledge and skills will the team collectively need to acquire to
+  successfully complete the verification and validation of your project?
+  Examples of possible knowledge and skills include dynamic testing knowledge,
+  static testing knowledge, specific tool usage, Valgrind etc.  You should look to
+  identify at least one item for each team member.
+  \item For each of the knowledge areas and skills identified in the previous
+  question, what are at least two approaches to acquiring the knowledge or
+  mastering the skill?  Of the identified approaches, which will each team
+  member pursue, and why did they make this choice?
+\end{enumerate}
+
 \end{document}
