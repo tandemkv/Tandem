@@ -1,7 +1,12 @@
 \documentclass[12pt, titlepage]{article}
 
+\usepackage[margin=1in]{geometry}
 \usepackage{booktabs}
 \usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{enumitem}
 \usepackage{hyperref}
 \hypersetup{
     colorlinks,
@@ -15,12 +20,24 @@
 \input{../Comments.text}
 \input{../Common.text}
 
+\setlength{\emergencystretch}{3em}
+
+% One system test: \begin{testcase}{T-ID}{Title} \item[Field] ... \end{testcase}
+\newenvironment{testcase}[2]
+  {\paragraph{#1: #2}\phantomsection\label{test:#1}\sloppy
+   \begin{description}[style=sameline, leftmargin=3.6cm, labelwidth=3.4cm,
+     font=\normalfont\bfseries, itemsep=2pt, topsep=2pt]}
+  {\end{description}}
+
+\newcommand{\cst}[1]{\texttt{#1}}
+\newcommand{\tref}[1]{\hyperref[test:#1]{#1}}
+
 \begin{document}
 
-\title{System Verification and Validation Plan for \progname{}} 
+\title{System Verification and Validation Plan for \progname{}}
 \author{\authname}
 \date{\today}
-	
+
 \maketitle
 
 \pagenumbering{roman}
@@ -30,529 +47,1190 @@
 \begin{tabularx}{\textwidth}{p{3cm}p{2cm}X}
 \toprule {\bf Date} & {\bf Version} & {\bf Notes}\\
 \midrule
-Date 1 & 1.0 & Notes\\
-Date 2 & 1.1 & Notes\\
+Nov 2, 2026 & 0.1 & First version, written against SRS version 0.2 and the
+Hazard Analysis.\\
 \bottomrule
 \end{tabularx}
-
-~\\
-\wss{The intention of the VnV plan is to increase confidence in the software.
-However, this does not mean listing every verification and validation technique
-that has ever been devised.  The VnV plan should also be a \textbf{feasible}
-plan. Execution of the plan should be possible with the time and team available.
-If the full plan cannot be completed during the time available, it can either be
-modified to ``fake it'', or a better solution is to add a section describing
-what work has been completed and what work is still planned for the future.}
-
-\wss{The VnV plan is typically started after the requirements stage, but before
-the design stage.  This means that the sections related to unit testing cannot
-initially be completed.  The sections will be filled in after the design stage
-is complete.  the final version of the VnV plan should have all sections filled
-in.}
 
 \newpage
 
 \tableofcontents
 
 \listoftables
-\wss{Remove this section if it isn't needed}
-
-\listoffigures
-\wss{Remove this section if it isn't needed}
 
 \newpage
 
 \section{Symbols, Abbreviations, and Acronyms}
 
 \renewcommand{\arraystretch}{1.2}
-\begin{tabular}{l l} 
-  \toprule		
-  \textbf{symbol} & \textbf{description}\\
-  \midrule 
-  T & Test\\
+\begin{tabularx}{\textwidth}{lX}
+  \toprule
+  \textbf{Symbol} & \textbf{Description}\\
+  \midrule
+  CI & Continuous integration\\
+  F1 & Harmonic mean of precision and recall over answer words\\
+  FR, NFR & Functional and non-functional requirement (SRS)\\
+  GPU & Graphics processing unit\\
+  HA & Hazard Analysis \citep{TandemHA}\\
+  HF & Hugging Face (Transformers library and model hub)\\
+  K, V & Key and value tensors of the KV cache\\
+  KL & Kullback--Leibler divergence between two next-token distributions\\
+  KV cache & Key-value cache: per-layer attention keys and values for
+  processed tokens\\
+  MG, MIS & Module Guide and Module Interface Specification \citep{TandemDesign}\\
+  PoC & Proof of concept\\
+  SR & Safety or security requirement (SRS and HA)\\
+  SRS & Software Requirements Specification \citep{TandemSRS}\\
+  T & Test (test IDs start with T-)\\
+  TTFT & Time to first token\\
   \bottomrule
-\end{tabular}\\
+\end{tabularx}
 
-\wss{symbols, abbreviations, or acronyms --- you can simply reference the SRS
-  \citep{SRS} tables, if appropriate}
-
-\wss{Remove this section if it isn't needed}
+\medskip
+\noindent Other terms follow the SRS glossary. Symbolic constants, written
+in \cst{TYPEWRITER\_CASE}, are defined with their values in
+Appendix~\ref{sec:constants}.
 
 \newpage
 
 \pagenumbering{arabic}
 
-This document ... \wss{provide an introductory blurb and roadmap of the
-  Verification and Validation plan}
-
 \section{General Information}
 
 \subsection{Summary}
 
-\wss{Say what software is being tested.  Give its name and a brief overview of
-  its general functions.}
+The software being tested is \progname{}. When a semantic router switches a
+conversation from one large language model to another, the new model
+normally has to process (prefill) the whole conversation history again
+before it can answer. \progname{} instead predicts the new model's KV cache
+from the previous model's KV cache with a trained translator, checks the
+predicted cache, and loads it, so the new model only processes the latest
+turn. If the predicted cache is unavailable or fails a check, \progname{}
+falls back to normal prefill.
+
+For the proof of concept, the source model is SmolLM2-360M-Instruct, the
+target model is Qwen2.5-0.5B-Instruct, and translation runs in one
+direction (source to target). The translator is trained on paired KV caches
+that both models produce for the same HotpotQA passages and questions
+\citep{Yang2018HotpotQA}. A small custom router chooses the model, and an
+inference runner built on Hugging Face Transformers runs it. Integration
+with vLLM is planned after the proof of concept.
 
 \subsection{Objectives}
 
-\wss{State what is intended to be accomplished.  The objective will be around
-  the qualities that are most important for your project.  You might have
-  something like: ``build confidence in the software correctness,''
-  ``demonstrate adequate usability.'' etc.  You won't list all of the qualities,
-  just those that are most important.}
+In order of priority, and following the goals in the SRS
+\citep[Section~1.2]{TandemSRS} and the hazards in the HA
+\citep[Section~5]{TandemHA}, this plan aims to build confidence that:
 
-\wss{You should also list the objectives that are out of scope.  You don't have 
-the resources to do everything, so what will you be leaving out.  For instance, 
-if you are not going to verify the quality of usability, state this.  It is also 
-worthwhile to justify why the objectives are left out.}
+\begin{enumerate}
+  \item \textbf{A wrong cache never silently produces an answer.} Every
+  predicted cache that fails a check, and every unsupported case, falls
+  back to normal prefill and records why (FR-04, FR-06, FR-07, SR-02).
+  This is the most important quality, because a bad cache gives a fluent
+  but wrong answer with no visible error (HA hazard H8).
+  \item \textbf{Translation accuracy is measured honestly} against normal
+  prefill on held-out data that was not used for training or checkpoint
+  selection (FR-14, FR-16, SR-09). This is the main risk the PoC must
+  address.
+  \item \textbf{Time savings are measured including all overhead}
+  (translation, checks and loading), with the same requests and settings in
+  both arms (FR-11, NFR-04).
+  \item \textbf{Cached history is never shared between users without
+  permission} (SR-01, SR-04, SR-12).
+\end{enumerate}
 
-\wss{The objectives are important because they highlight that you are aware of 
-limitations in your resources for verification and validation.  You can't do everything, 
-so what are you going to prioritize?  As an example, if your system depends on an 
-external library, you can explicitly state that you will assume that external library 
-has already been verified by its implementation team.}
+\paragraph{Out of scope.}
+\begin{itemize}
+  \item \textbf{External libraries} (PyTorch, Hugging Face Transformers,
+  vLLM, the NVIDIA prompt classifier) are assumed to have been verified by
+  their own teams. We test only how \progname{} uses them.
+  \item \textbf{Usability testing with end users.} \progname{} has no user
+  interface; its users are technical operators. Setup and documentation are
+  checked by a structured walkthrough instead (\tref{T-DOC-1}).
+  \item \textbf{Factual correctness of model answers.} The reference is the
+  target model's own output with normal prefill, not the true answer
+  (SRS, Potential User Problems).
+  \item \textbf{Router quality.} Whether the router picks the best model for
+  a prompt is outside the SRS scope (A2). The router is tested only for
+  returning a valid model and falling back when its classifier fails.
+  \item \textbf{Multi-GPU and multi-server execution}, which the SRS leaves
+  for future work (UC2).
+  \item \textbf{Money cost.} GPU time is measured; cost in dollars is
+  reported only if rates are known (SRS, Costs).
+\end{itemize}
 
 \subsection{Custom Documents}
 
-\wss{Summarize the CDs (Custom Documents) that were tackled by this project.  CDs 
-can include usability testing, code walkthroughs, user documentation, formal
-proof, GenderMag personas, Design Thinking, etc.  CDs should have already
-been approved by the course instructor as included in your problem statement.
-You can use a pull request to update your CDs (in TeamComposition.csv or
-Repos.csv) if your plan changes as a result of the VnV planning exercise.}
+\progname{}'s custom documents are a \textbf{Machine Learning (ML) Model
+Report} in the fall term and a \textbf{Performance Report} in the winter
+term.
+
+\begin{itemize}
+  \item \textbf{ML Model Report} \citep{TandemMLReport}. It describes the
+  translator, the paired dataset, the training procedure and the accuracy
+  evaluation. The system test \tref{T-QUAL-2} defines the end-to-end pass
+  limit; the report adds the component-level evaluation of the translator,
+  which is not a system test:
+  \begin{itemize}
+    \item the relative error per target layer $\ell$, separately for keys
+    and values,
+    $e_\ell = \lVert \hat{K}_\ell - K_\ell \rVert_F / \lVert K_\ell
+    \rVert_F$, where $\hat{K}_\ell$ is the predicted and $K_\ell$ the native
+    tensor and $\lVert\cdot\rVert_F$ is the Frobenius norm (the absolute
+    error is reported when $\lVert K_\ell \rVert_F = 0$), plotted against
+    layer for the translator and an affine baseline;
+    \item a check that the training, selection and test splits share no
+    source document;
+    \item two metamorphic checks that need no native reference: extending a
+    history does not change the predicted cache at earlier positions, and
+    predicting twice gives identical tensors.
+  \end{itemize}
+  The report also presents the results of \tref{T-QUAL-2}, their analysis
+  and the failure cases. The report improves the project because the translator is
+  its riskiest part, and it forces the team to justify the data splits,
+  baselines and metrics before claiming any result.
+  \item \textbf{Performance Report.} It will present the time, throughput
+  and memory measurements of \tref{T-PERF-1} and \tref{T-PERF-2}, with
+  configurations, repeated trials and variation. The V\&V Report will
+  reference it when deciding whether NFR-04, NFR-07 and NFR-08 are met.
+\end{itemize}
 
 \subsection{Relevant Documentation}
 
-\wss{Reference relevant documentation.  This will definitely include your SRS
-  and your other project documents (design documents, like MG, MIS, etc).  You
-  can include these even before they are written, since by the time the project
-  is done, they will be written.  You can create BibTeX entries for your
-  documents and within those entries include a hyperlink to the documents.}
-
-\citet{SRS}
-
-\wss{Don't just list the other documents.  You should explain why they are relevant and 
-how they relate to your VnV efforts.}
+\begin{itemize}
+  \item \textbf{Problem Statement and Goals}
+  \citep{TandemProblemStatement}. States the goals that the objectives
+  above are drawn from, and the custom documents.
+  \item \textbf{SRS} \citep{TandemSRS}. Defines the requirements every
+  system test traces to, including the accuracy rules and the timing method
+  (warm-up runs, paired trials and bootstrap confidence intervals) that the
+  tests reuse.
+  \item \textbf{Hazard Analysis} \citep{TandemHA}. Adds SR-09 to SR-14 and
+  their fit criteria; the fallback, isolation and memory tests below
+  implement those fit criteria.
+  \item \textbf{Development Plan} \citep{TandemDevPlan}. Lists the tools,
+  coding standard and CI, which Section~\ref{sec:tools} refers to rather
+  than repeating.
+  \item \textbf{MG and MIS} \citep{TandemDesign}. Not yet written. The unit
+  tests in Section~\ref{sec:unit} will be derived from them.
+  \item \textbf{ML Model Report} \citep{TandemMLReport}. Reports the results
+  of the translator accuracy tests.
+  \item \textbf{Same-model cache replay results}
+  (\texttt{src/experiments/LOCAL\_CACHE\_RESULTS.md}). An experiment
+  already run on Qwen2.5-0.5B-Instruct that measured TTFT for normal, warm
+  and file-restored caches and checked that outputs were identical. It is
+  the starting point for \tref{T-QUAL-1} and \tref{T-PERF-1}.
+\end{itemize}
 
 \section{Plan}
+\label{sec:plan}
 
-\wss{Introduce this section.  You can provide a roadmap of the sections to
-  come.}
+This section describes who carries out verification and validation, how the
+documents are reviewed (SRS, design and this plan), how the implementation
+is verified, which tools are used, and how the team checks that it is
+building the right product.
 
 \subsection{Verification and Validation Team}
 
-\wss{Your teammates.  Maybe your supervisor.
-  You should do more than list names.  You should say what each person's role is
-  for the project's verification.  A table is a good way to summarize this information.}
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Member} & \textbf{Verification role}\\
+\midrule
+William Pol & Owner of this plan and its traceability table. Leads SRS
+verification (Section~\ref{sec:srsver}), as he did not write the SRS.
+Writes and runs the fallback tests (\tref{T-FB-1} to \tref{T-FB-3}) and
+cache memory test (\tref{T-LIFE-2}) from the HA.\\
+Zayed Umer & Same-model accuracy (\tref{T-QUAL-1}) and the translator's
+component-level evaluation. Lead author of the ML Model Report.\\
+Justin Kwinecki & Router and runner tests: input handling (\tref{T-IN-1} to
+\tref{T-IN-3}), cache loading (\tref{T-CACHE-1} to \tref{T-CACHE-3}),
+request lifecycle (\tref{T-LIFE-1}) and configuration
+(\tref{T-CONF-1}). Maintains the code CI workflow.\\
+Manav Patel & Evaluations for the PoC demonstration: cross-model accuracy
+(\tref{T-QUAL-2}), whose results feed the ML Model Report. Performance tests
+(\tref{T-PERF-1}, \tref{T-PERF-2}) and the reproducibility rebuild
+(\tref{T-DOC-2}). Lead author of the Performance Report.\\
+Musab Mondal & Isolation and privacy tests (\tref{T-ISOLATION-1} to
+\tref{T-ISOLATION-3}), which test the security requirements he wrote in the
+SRS, and records (\tref{T-REPORT-1}). As SRS author, answers the SRS review
+issues and applies the resulting changes.\\
+Manoj Govindassamy (advisor, Cohere) & Validates the requirements and
+results from the inference-serving side (Sections~\ref{sec:srsver}
+and~\ref{sec:validation}).\\
+Peer team and TA & Review the SRS, design and this plan, and file issues in
+the repository.\\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\noindent The setup walkthrough (\tref{T-DOC-1}) is done by a member who did
+not write the README. Every test is reviewed by a second member who did not write it,
+and every pull request needs one approving reviewer other than its author.
 
 \subsection{SRS Verification}
+\label{sec:srsver}
 
-\wss{List any approaches you intend to use for SRS verification.  This may
-  include ad hoc feedback from reviewers, like your classmates (like your
-  primary reviewer), or you may plan for something more rigorous/systematic.}
-
-\wss{If you have a supervisor for the project, you shouldn't just say they will
-read over the SRS.  You should explain your structured approach to the review.
-Will you have a meeting?  What will you present?  What questions will you ask?
-Will you give them instructions for a task-based inspection?  Will you use your
-issue tracker?}
-
-\wss{Maybe create an SRS checklist?}
+\begin{enumerate}
+  \item \textbf{Peer review (done).} Team~1 filed issues \#11--\#16 and
+  \#38--\#43. Each issue is answered in the repository and closed with a
+  link to the commit that resolves it, or with a reason it is not
+  changed.
+  \item \textbf{Checklist review.} William Pol, who did not write the SRS, goes
+  through the course SRS checklist and, for every requirement, records in
+  one issue whether it (a) is unambiguous, (b) has a fit criterion with a
+  value or a named constant, and (c) has at least one test in
+  Table~\ref{tab:trace}. A requirement without a test is either given one
+  or reworded.
+  \item \textbf{Task-based inspection.} Before reading this plan, the
+  reviewer writes how they would test FR-16, NFR-04 and SR-13 from the SRS
+  alone. Differences from this plan's tests point to ambiguous wording.
+  \item \textbf{Advisor review meeting} (30 minutes, recorded with the
+  supervisor meeting issue template). The team presents the goals, FR-16,
+  NFR-04, the split NFR-05 and the PoC results, then asks:
+  \begin{enumerate}[label=(\alph*)]
+    \item Is a router switching models in the middle of a conversation a
+    realistic case in production serving?
+    \item Is an answer-quality limit (\cst{QUALITY\_LOSS\_LIMIT}) an
+    acceptable replacement for exact output match in the cross-model case?
+    \item What TTFT reduction would make the approach worth integrating?
+    \item Are the excluded items (router development, multi-server
+    execution) the right ones to leave out?
+  \end{enumerate}
+  Answers that change a requirement are recorded as issues linked to the
+  SRS.
+\end{enumerate}
 
 \subsection{Design Verification}
 
-\wss{Plans for design verification}
-
-\wss{The review will include reviews by your classmates}
-
-\wss{Create a checklists?}
+The MG and MIS will be reviewed by the peer team, as for the other
+documents, and by an internal checklist review that checks that:
+\begin{itemize}
+  \item every requirement in Table~\ref{tab:trace} maps to at least one
+  module;
+  \item each module hides one design decision, such as the cache format, the
+  translator or the routing policy;
+  \item the interface between the runner and the translator states its input
+  (source cache, model pair, token alignment), its output (a target cache,
+  or a reason it cannot translate), and that the runner, not the
+  translator, performs the fallback to prefill;
+  \item token positions, rotary position embedding (RoPE) handling, data
+  type and device are specified at every point where a cache changes
+  hands.
+\end{itemize}
+The team will also walk the advisor through the model-switch sequence
+(route, translate, check, load, prefill the suffix, decode) before Rev~0.
 
 \subsection{Verification and Validation Plan Verification}
 
-\wss{The verification and validation plan is an artifact that should also be
-verified.  Techniques for this include review and mutation testing.}
-
-\wss{The review will include reviews by your classmates}
-
-\wss{Create a checklists?}
+\begin{itemize}
+  \item \textbf{Peer review} of this plan by another team, due November~5.
+  \item \textbf{Checklist review} against the course VnV Plan checklist by a
+  member who did not write the section.
+  \item \textbf{Seeded faults.} To check that the tests can actually fail,
+  a member deliberately breaks one behaviour at a time on a throwaway
+  branch: skipping the non-finite value check, dropping the last cached
+  token, ignoring the sharing group, and appending output after a restart.
+  The tests \tref{T-CACHE-1}, \tref{T-CACHE-3}, \tref{T-ISOLATION-1} and
+  \tref{T-FB-2} must each fail on their seeded fault.
+\end{itemize}
 
 \subsection{Implementation Verification}
 
-\wss{You should at least point to the tests listed in this document and the unit
-  testing plan.}
+Dynamic verification uses the system tests in Section~\ref{sec:system} and
+the unit tests planned in Section~\ref{sec:unit}. Static verification uses:
 
-\wss{In this section you would also give any details of any plans for static
-  verification of the implementation.  Potential techniques include code
-  walkthroughs, code inspection, static analyzers, etc.}
-
-\wss{The final class presentation in CAS 741 could be used as a code
-walkthrough.  There is also a possibility of using the final presentation (in
-CAS741) for a partial usability survey.}
+\begin{itemize}
+  \item \textbf{Linting} with \texttt{ruff} in CI on every pull request.
+  \item \textbf{Code review} on every pull request, by a reviewer other than
+  the author, who checks: tests added or updated; model and dataset
+  revisions pinned; tensor shapes, positions, data types and devices
+  checked where caches are built or loaded; no prompts, caches or
+  credentials committed; documentation updated.
+  \item \textbf{Code walkthrough} before Rev~0 of the cache handoff path.
+  The author explains the code line by line to two members, who check: the
+  cache length equals the number of processed tokens (no token dropped or
+  repeated); the attention mask covers cached and new tokens; RoPE is
+  applied once, at the target model's positions; fallback is taken before
+  any output on every failure path.
+\end{itemize}
 
 \subsection{Automated Testing and Verification Tools}
+\label{sec:tools}
 
-\wss{What tools are you using for automated testing.  Likely a unit testing
-  framework and maybe a profiling tool, like ValGrind.  Other possible tools
-  include a static analyzer, make, continuous integration tools, test coverage
-  tools, etc.  Explain your plans for summarizing code coverage metrics.
-  Linters are another important class of tools.  For the programming language
-  you select, you should look at the available linters.  There may also be tools
-  that verify that coding standards have been respected, like flake9 for
-  Python.}
+The language, linter, test framework, coverage tool and coding standard
+were chosen in the Development Plan \citep[Sections~10 and~12]{TandemDevPlan}
+and are summarized here; the performance and analysis tools are added for
+this plan.
 
-\wss{If you have already done this in the development plan, you can point to
-that document.}
-
-\wss{The details of this section will likely evolve as you get closer to the
-  implementation.}
+\begin{itemize}
+  \item \textbf{Language and environment:} Python 3.12, with dependencies
+  pinned per script through \texttt{uv} lock files.
+  \item \textbf{Test framework:} \texttt{pytest}, used as the runner for
+  both the end-to-end system tests and the unit tests. It also runs the
+  existing \texttt{unittest}-style tests in \texttt{test/}.
+  \item \textbf{Linter and coding standard:} \texttt{ruff} for linting and
+  formatting; PEP~8 as the coding standard.
+  \item \textbf{Coverage:} \texttt{coverage.py} through \texttt{pytest-cov},
+  reporting line and branch coverage per module in CI. No target is set
+  before Rev~0; after Rev~0 the cache-check and fallback modules must reach
+  full branch coverage.
+  \item \textbf{CI:} GitHub Actions runs \texttt{ruff} and the tests that
+  need no GPU or model download (routing, classifier scoring, synthetic
+  translator tests) on every pull request. GitHub's runners have no GPU, so
+  GPU tests are run by hand on the department clusters and their results
+  are committed with the exact command.
+  \item \textbf{Performance tools:} \texttt{time.perf\_counter} with
+  \texttt{torch.cuda.synchronize} for timing;
+  \texttt{torch.cuda.max\_memory\_allocated} for memory; the PyTorch
+  Profiler and NVIDIA Nsight Systems to explain slow results.
+  \item \textbf{Analysis:} NumPy for bootstrap confidence intervals with a
+  recorded seed; Matplotlib for the plots named in each test.
+\end{itemize}
 
 \subsection{Software Validation}
+\label{sec:validation}
 
-\wss{If there is any external data that can be used for validation, you should
-  point to it here.  If there are no plans for validation, you should state that
-  here.}
+Validation checks that the requirements describe something worth building.
 
-\wss{You might want to use review sessions with the stakeholder to check that
-the requirements document captures the right requirements.  Maybe task based
-inspection?}
-
-\wss{For those capstone teams with an external supervisor, the Rev 0 demo should 
-be used as an opportunity to validate the requirements.  You should plan on 
-demonstrating your project to your supervisor shortly after the scheduled Rev 0 demo.  
-The feedback from your supervisor will be very useful for improving your project.}
-
-\wss{For teams without an external supervisor, user testing can serve the same purpose 
-as a Rev 0 demo for the supervisor.}
-
-\wss{This section might reference back to the SRS verification section.}
+\begin{itemize}
+  \item \textbf{Advisor review} of the requirements, as described in
+  Section~\ref{sec:srsver}.
+  \item \textbf{Rev~0 demonstration to the advisor} shortly after the
+  scheduled Rev~0 demo. The team shows a model switch with and without
+  \progname{} and asks whether the measured TTFT reduction and quality loss
+  would be acceptable in practice. Feedback is recorded as issues.
+  \item \textbf{Public data.} HotpotQA \citep{Yang2018HotpotQA} supplies the
+  passages and questions, so others can repeat the accuracy tests.
+\end{itemize}
 
 \section{System Tests}
+\label{sec:system}
 
-\wss{There should be text between all headings, even if it is just a roadmap of
-the contents of the subsections.}
+This section lists the system tests. Tests of functional requirements come
+first, grouped by area, followed by tests of non-functional requirements.
+Each test traces to the requirements in Table~\ref{tab:trace}.
+
+All tests are system level, as advised by the TA. Each test drives
+\progname{} only through its external interfaces: requests sent to the
+runner (or, from Rev~0, the serving engine), the configuration, cancellation,
+and stored cache files. Each test observes only what \progname{} returns or
+writes: output tokens and their log-probabilities, final statuses, request
+records, logs and exports, and GPU memory reported by \texttt{nvidia-smi}.
+No test calls internal functions, patches code or inspects tensors inside
+the process. Faults are introduced through a fault-injection setting in the
+test configuration, or by editing stored files. Checks of the translator as
+a component are reported in the ML Model Report, and unit tests are planned
+in Section~\ref{sec:unit}.
+
+Automated tests are end-to-end: each one starts \progname{} as a whole and
+talks to it as a client would. They are written with \texttt{pytest}, which
+is only the test runner. The unit tests in Section~\ref{sec:unit} also use
+\texttt{pytest}, but call single modules directly.
+
+Tests that need only the runner and the models (accuracy, cache loading and
+\tref{T-PERF-1}) run for the PoC; tests marked as needing the serving
+integration run from Rev~0.
+
+\paragraph{Common setup.} Unless a test says otherwise, it uses:
+\begin{itemize}
+  \item \textbf{Setup S}: source model SmolLM2-360M-Instruct, target model
+  Qwen2.5-0.5B-Instruct, both at pinned revisions, 32-bit floating point,
+  eager attention; the translator checkpoint under test, recorded by version;
+  prediction enabled; greedy decoding.
+  \item \textbf{Test set}: \cst{TEST\_PROMPTS} HotpotQA prompts (passage
+  plus question) that share no source document with the prompts used to
+  train the translator or to select its checkpoint, truncated to each
+  length in \cst{CONTEXT\_LENGTHS}.
+  \item \textbf{Planted-code fixture (F1)}: the prompt from the existing
+  replay experiment. Notes containing ``The code is EQBU'' padded with fixed
+  filler to each length in \cst{CONTEXT\_LENGTHS}, with the code placed
+  early, middle or late, followed by the question ``What is the code?''. It
+  gives a small, readable check that history was carried over. The native
+  output, not the string EQBU, is the oracle, since the native model itself
+  misses the code in one of the nine cases.
+  \item \textbf{Native reference}: the same request sent with prediction
+  turned off, so the target model uses normal prefill.
+  \item \textbf{Test trace}: a configuration option, used only with
+  synthetic and public prompts, that adds each turn's rendered prompt token
+  IDs and the counts of reused and computed tokens to the request record.
+  \item \textbf{Native repeatability check}: before any accuracy test, the
+  native reference is run twice on every test prompt. If the returned
+  log-probabilities differ
+  by more than \cst{SCORE\_ATOL} + \cst{SCORE\_RTOL} $\times$ |value| or the
+  greedy tokens differ, the accuracy tests are marked blocked until the
+  cause (for example a non-deterministic kernel) is found, because the
+  reference itself cannot be trusted.
+  \item \textbf{Hardware}: one GPU on the department cluster, or the M2
+  laptop with 16~GB of memory for tests marked as runnable locally.
+\end{itemize}
 
 \subsection{Tests for Functional Requirements}
 
-\wss{Subsets of the tests may be in related, so this section is divided into
-  different areas.  If there are no identifiable subsets for the tests, this
-  level of document structure can be removed.}
+The areas below follow the order of a request: checking the input,
+checking and loading the predicted cache, falling back on failure,
+finishing the request, recording what happened, and keeping users apart.
+Together they cover FR-01 to FR-16 and the safety requirements SR-01 to
+SR-06 and SR-09 to SR-14.
 
-\wss{Include a blurb here to explain why the subsections below
-  cover the requirements.  References to the SRS would be good here.}
+\subsubsection{Request Input}
 
-\subsubsection{Area of Testing1}
+These tests cover the checks made before any work starts (FR-01, FR-02,
+FR-03; SRS Section~9) and use the request fields and limits of the SRS
+Data Dictionary \citep[Section~7.2]{TandemSRS}.
 
-\wss{It would be nice to have a blurb here to explain why the subsections below
-  cover the requirements.  References to the SRS would be good here.  If a section
-  covers tests for input constraints, you should reference the data constraints
-  table in the SRS.}
-		
-\paragraph{Title for Test}
+\begin{testcase}{T-IN-1}{Invalid requests are rejected before allocation}
+\item[Control] Automatic
+\item[Initial state] Setup S loaded; no requests running.
+\item[Input] Six requests: (1) no \texttt{request\_id}; (2)
+\texttt{model\_id} = \texttt{"llama-x"}; (3) output cap of 0 tokens; (4) a
+\texttt{request\_id} already used in the run; (5) a prompt of
+\cst{MAX\_PROMPT\_TOKENS}~+~1 tokens; (6) a valid request with no cache;
+(7) a prompt of exactly \cst{MAX\_PROMPT\_TOKENS} tokens; (8)
+\cst{CONCURRENT\_REQUESTS}~+~1 simultaneous valid requests.
+\item[Output] Requests 1--5 are rejected with the reason codes
+\texttt{missing\_field}, \texttt{unknown\_model}, \texttt{invalid\_setting},
+\texttt{duplicate\_id} and \texttt{too\_long}; GPU memory in use after
+each rejection equals the value before it; no tokens are generated.
+Requests 6 and 7 complete. In 8, the extra request is queued or rejected
+with a reason, as documented.
+\item[Derivation] FR-01 requires rejection with a reason before resources
+are allocated, and valid cacheless requests to pass; NFR-09 requires the
+published limits to hold at their boundaries.
+\item[How performed] An end-to-end test sends the requests to the runner and
+reads GPU memory from \texttt{nvidia-smi} before and after each one.
+\end{testcase}
 
-\begin{enumerate}
+\begin{testcase}{T-IN-2}{The router's model and the full prompt are used}
+\item[Control] Automatic
+\item[Initial state] Setup S; the router replaced by a stub that returns a
+fixed sequence of models.
+\item[Input] A 10-turn conversation from the test set, with the stub
+returning \texttt{smollm}, \texttt{qwen}, \texttt{qwen}, \texttt{smollm},
+and so on. Its turns include accented Latin letters, Chinese, Arabic, emoji,
+tabs, repeated spaces and the models' own chat delimiter strings as plain
+text.
+\item[Output] For each turn, the request record names the model the stub
+returned, at the pinned revision, and the test trace's prompt token IDs
+equal the native tokenization of the full history in that model's chat
+format.
+\item[Derivation] FR-02 requires the router-selected model and the
+complete ordered prompt to be preserved; NFR-03 requires text to be
+preserved exactly.
+\item[How performed] End-to-end test with the test trace enabled, comparing the
+recorded token IDs with \texttt{apply\_chat\_template} applied to the full
+history. The router is an external input (SRS assumption A2), so replacing
+it with a stub does not bypass \progname{}.
+\end{testcase}
 
-\item{test-id1\\}
+\begin{testcase}{T-IN-3}{Only an exact history prefix is reused}
+\item[Control] Automatic
+\item[Initial state] Setup S with a predicted cache for conversation H.
+\item[Input] Six follow-up requests: H unchanged; H with one character of
+one message changed; H with two messages swapped; H with a different
+system instruction; H formatted with a different tokenizer revision; H
+followed by a new turn.
+\item[Output] Reuse for ``unchanged'' and ``new turn'' only; the other four
+use normal prefill with reason \texttt{prefix\_mismatch}.
+\item[Derivation] FR-03: semantic similarity or equal length is not
+enough; only an exact prefix in the target model's format may be reused.
+\item[How performed] End-to-end test reading the reuse decision and reason from
+the request record.
+\end{testcase}
 
-Control: Manual versus Automatic
-					
-Initial State: 
-					
-Input: 
-					
-Output: \wss{The expected result for the given inputs.  Output is not how you
-are going to return the results of the test.  The output is the expected
-result.}
+\subsubsection{Cache Checks and Loading}
 
-Test Case Derivation: \wss{Justify the expected value given in the Output field}
-					
-How test will be performed: 
-					
-\item{test-id2\\}
+These tests cover the checks before a cache is used (FR-04, SR-02, SR-11)
+and the loading of an accepted cache (FR-05). The faults come from the
+cache failure modes in the HA FMEA \citep[Section~6]{TandemHA}.
 
-Control: Manual versus Automatic
-					
-Initial State: 
-					
-Input: 
-					
-Output: \wss{The expected result for the given inputs}
+\begin{testcase}{T-CACHE-1}{Each cache check rejects its fault}
+\item[Control] Automatic
+\item[Initial state] Setup S with one valid predicted cache C for a
+test-set prompt, saved to the cache store.
+\item[Input] A follow-up request that uses C, and eight more, each after
+one fault is made to the stored file of C: one layer removed; a wrong
+number of heads; one value set to NaN; translator version changed; target
+revision changed; a different sharing group; one byte changed (checksum
+mismatch, SR-11); covered length one token longer than the history.
+\item[Output] C is reused. For each faulty file, the request record shows
+the cache rejected with its own reason code, the request completes with
+normal prefill, and its greedy output equals the native reference.
+\item[Derivation] FR-04 requires each check to fail independently; SR-02
+requires rejected caches never to enter generation; SR-11 requires a
+changed byte to be detected.
+\item[How performed] End-to-end test, parametrized over the faults, editing
+the stored file between requests.
+\end{testcase}
 
-Test Case Derivation: \wss{Justify the expected value given in the Output field}
+\begin{testcase}{T-CACHE-2}{An accepted cache is loaded and only the suffix
+is processed}
+\item[Control] Automatic
+\item[Initial state] Setup S with the test trace enabled.
+\item[Input] 20 test-set prompts at 512 tokens, each sent as a history
+turn followed by its question as the next turn: (a) both turns to Qwen
+(same-model reuse); (b) the history to SmolLM and the question to Qwen
+(predicted cache).
+\item[Output] In both cases the record of the question turn shows the
+history as reused and the computed target tokens equal to the question's
+token count (plus \cst{CANARY\_TOKENS} if the SR-10 check is enabled),
+and generation completes. In (a), greedy output equals the native reference
+for \cst{GREEDY\_TOKENS} tokens.
+\item[Derivation] FR-16 requires prediction without target prefill over
+the history; FR-05 requires the suffix to be processed once. Same-model
+reuse is an exact oracle: loading the cache must not change the output, so
+any difference is a loading bug, not a translation error.
+\item[How performed] End-to-end test reading the request records.
+\end{testcase}
 
-How test will be performed: 
+\begin{testcase}{T-CACHE-3}{No token is dropped or repeated across turns}
+\item[Control] Automatic
+\item[Initial state] Setup S with the test trace enabled.
+\item[Input] A 5-turn conversation on Qwen in which each turn reuses the
+cache left by the previous turn's answer.
+\item[Output] For each turn, the record's reused plus computed token
+counts equal the token count of the full history, including the last
+generated token of the previous answer, and greedy output equals the native
+reference for that turn.
+\item[Derivation] The SRS reuse rules say no prompt token may be skipped or
+processed twice. Hugging Face \texttt{generate} returns a cache that does
+not include its final generated token, so this case must be handled
+explicitly.
+\item[How performed] End-to-end test reading the records at every turn;
+runnable locally.
+\end{testcase}
 
-\end{enumerate}
+\subsubsection{Fallback and Failure Handling}
 
-\subsubsection{Area of Testing2}
+These tests cover native processing (FR-06), recovery from failures
+(FR-07, NFR-06) and the run-time check (SR-10, HA Section~7).
 
-...
+\begin{testcase}{T-FB-1}{Normal processing is used when reuse does not
+apply}
+\item[Control] Automatic
+\item[Initial state] Setup S.
+\item[Input] Five cases on test-set prompts: a turn on the same model; a
+first turn with no history; a missing source cache; a switch from Qwen to
+SmolLM (no translator for that direction); prediction switched off.
+\item[Output] Each uses normal prefill, records the matching reason code,
+and gives greedy output equal to the native reference for
+\cst{GREEDY\_TOKENS} tokens.
+\item[Derivation] FR-06 requires native processing to stay available and
+unchanged when reuse is unavailable or unsuitable.
+\item[How performed] End-to-end test.
+\end{testcase}
+
+\begin{testcase}{T-FB-2}{Failures restart once before output, never after}
+\item[Control] Automatic
+\item[Initial state] Setup S with the fault-injection setting enabled in
+the test configuration.
+\item[Input] Three requests, with the fault-injection setting making
+(1) translation fail, (2) cache loading fail, and (3) generation fail after
+the first output token.
+\item[Output] Cases 1 and 2: exactly one native restart, the same
+\texttt{request\_id}, output equal to the native reference, one final
+status \texttt{completed}. Case 3: no restart, final status
+\texttt{failed}, and no output from a second attempt appended. In every
+case, the next 10 valid requests complete with output equal to their
+references.
+\item[Derivation] FR-07 allows at most one restart, before any output,
+and forbids combining output from two attempts. NFR-06 requires the server
+to keep serving after a failed request.
+\item[How performed] End-to-end test reading output events, final statuses and
+records.
+\end{testcase}
+
+\begin{testcase}{T-FB-3}{The run-time check catches a degraded cache}
+\item[Control] Automatic
+\item[Initial state] Setup S with the SR-10 check enabled.
+\item[Input] For 20 test-set prompts, a follow-up request using the
+stored predicted cache, and one after Gaussian noise is added to the stored
+file so that the relative error at the last \cst{CANARY\_TOKENS} positions
+is 1.0.
+\item[Output] Every noisy cache falls back with reason
+\texttt{check\_failed}. The number of clean predicted caches that pass is
+reported; it must be greater than zero for the check to be useful.
+\item[Derivation] SR-10 fit criterion. Peer review issue \#41 questions
+whether SR-10 is consistent with FR-16; this test is kept only if the SRS
+revision keeps SR-10.
+\item[How performed] End-to-end test on the cluster.
+\end{testcase}
+
+\subsubsection{Request Lifecycle}
+
+These tests cover output delivery (FR-08), memory release (FR-09),
+cancellation (FR-15) and memory held by caches (SR-03 in SRS
+Section~15.2; SR-14 in HA Section~7). They
+require the serving integration and run from Rev~0.
+
+\begin{testcase}{T-LIFE-1}{Requests end cleanly}
+\item[Control] Automatic
+\item[Initial state] Setup S in the serving integration, idle, with the
+timeout set to \cst{TEST\_TIMEOUT}; GPU memory in use $M_0$ recorded.
+\item[Input] \cst{LEAK\_CYCLES} cycles, each with \cst{CONCURRENT\_REQUESTS}
+overlapping requests that ask the model to repeat a distinct 6-digit code.
+In each cycle one request is cancelled while queued, one is cancelled after
+5 tokens, one asks for 4,000 tokens and exceeds the timeout, and one fails
+through the fault-injection setting. One long request stays active throughout.
+\item[Output] Every output event carries its own request ID, in order, and
+each completed output contains only its own code. Each accepted request has
+exactly one final status: \texttt{cancelled}, \texttt{cancelled},
+\texttt{failed} with reason \texttt{timeout}, \texttt{failed}, and
+\texttt{completed} for the rest. After every cycle, GPU memory in use
+minus the active request's memory is within \cst{MEMORY\_TOLERANCE} of $M_0$.
+\item[Derivation] FR-08, FR-09 and FR-15. The short timeout replaces the
+120-second default so the test runs quickly.
+\item[How performed] Script on the cluster, plotting memory against cycle
+number.
+\end{testcase}
+
+\begin{testcase}{T-LIFE-2}{Cache memory is protected and bounded}
+\item[Control] Automatic
+\item[Initial state] Setup S in the serving integration; a request
+generating with predicted cache C.
+\item[Input] (1) While the request is generating, other requests that
+fill cache memory so that C would be evicted, then a request whose history
+would replace C. (2) Predicted caches created for 200
+test-set prompts and never used.
+\item[Output] (1) The request's output is identical to an undisturbed run,
+and the serving engine's cache memory metric shows C freed only after the
+request ends. (2) Memory held by unused
+predicted caches never exceeds \cst{PREDICTED\_CACHE\_LIMIT}, and no unused
+cache is older than \cst{PREDICTED\_CACHE\_TTL}.
+\item[Derivation] SR-03 and the SR-14 fit criterion.
+\item[How performed] End-to-end test; the cache memory metric is sampled every
+second for (2).
+\end{testcase}
+
+\subsubsection{Configuration and Records}
+
+These tests cover settings (FR-13), approval of a setup (FR-14) and the
+records used for comparisons (FR-10, FR-11, FR-12).
+
+\begin{testcase}{T-CONF-1}{Settings are checked and reuse needs evidence}
+\item[Control] Automatic
+\item[Initial state] \progname{} stopped.
+\item[Input] (1) A translator for a model pair that is not approved;
+(2) prediction enabled with no translator checkpoint; (3) a valid
+configuration with no \tref{T-QUAL-2} record, a failing record, a passing
+record for another translator version, and a passing record for this one;
+(4) a stored cache reference used after the valid configuration is
+changed to a different target revision, and after \progname{} is
+restarted.
+\item[Output] (1) and (2) are rejected at start-up with a reason. In (3),
+only the last record enables reuse, and turning prediction off makes all
+requests use normal prefill. In (4), both uses are rejected with reason \texttt{stale\_cache}.
+\item[Derivation] FR-13; FR-14 with SR-09: missing or failed evidence
+prevents approval; SR-05: caches from an old configuration are never
+reused.
+\item[How performed] End-to-end test.
+\end{testcase}
+
+\begin{testcase}{T-REPORT-1}{Requests are recorded and compared fairly}
+\item[Control] Automatic
+\item[Initial state] Setup S and the comparison tool.
+\item[Input] (1) One reused and one fallback request with known prompts.
+(2) A native run and a \progname{} run of a 20-request workload, then a
+second pair in which one generation setting differs.
+\item[Output] (1) Each record contains the run ID, request ID, source and
+target models, translator version, timings, computed prompt tokens, final
+status, reuse decision and reason. Computed prompt tokens equal the suffix
+length for the reused request and the full prompt length for the fallback.
+A timing that was not measured has a missing-value reason, not a number.
+(2) The first comparison lists the same requests, routing decisions,
+arrival times and settings in both arms and contains every field listed in
+FR-12. The second is marked invalid, naming the differing setting.
+\item[Derivation] FR-10, FR-11 and FR-12.
+\item[How performed] End-to-end test reading the records and the tool's output.
+\end{testcase}
+
+\subsubsection{Isolation and Privacy}
+
+These tests cover sharing between users (SR-01, SR-04, SR-12), stale caches
+(SR-05) and logs (SR-06), from SRS Section~15.3 and HA Section~7.
+
+\begin{testcase}{T-ISOLATION-1}{No reuse across sharing groups}
+\item[Control] Automatic
+\item[Initial state] Setup S.
+\item[Input] The same history sent in sharing group A and then in group B;
+then again in group A; then a request in group B that claims group A in a
+request field.
+\item[Output] Group B never reuses A's cache (reason
+\texttt{no\_permission}); the second request in A reuses it; the claimed
+group is ignored.
+\item[Derivation] SR-01 and SR-12: sharing is decided by the host, never by
+the request.
+\item[How performed] End-to-end test.
+\end{testcase}
+
+\begin{testcase}{T-ISOLATION-2}{Another request's private text has no
+effect}
+\item[Control] Automatic
+\item[Initial state] Setup S.
+\item[Input] Fixture F1 as the shared history, branched into two
+concurrent requests in the same group: request R, which is held fixed, and
+a second branch B whose private suffix is ``secret-A'' in one run and
+``secret-B'' in a second run.
+\item[Output] R's returned log-probabilities are within \cst{SCORE\_ATOL}
++ \cst{SCORE\_RTOL} $\times$ |value| across the two runs, and its greedy tokens are identical,
+for \cst{GREEDY\_TOKENS} tokens. R's output never contains ``secret-A'' or
+``secret-B''.
+\item[Derivation] SR-04: shared history grants no access to later private
+text. Changing only B and holding R fixed means any difference in R can
+only come from B leaking into it.
+\item[How performed] End-to-end test, run only when the native repeatability
+check passes.
+\end{testcase}
+
+\begin{testcase}{T-ISOLATION-3}{Logs contain no private content}
+\item[Control] Automatic
+\item[Initial state] Setup S with default logging.
+\item[Input] 20 requests whose prompts and system instructions contain the
+marker \cst{SECRET\_MARKER}.
+\item[Output] The marker appears 0 times in all logs, records and exports,
+and no exported file contains tensor data. Request IDs and reasons are
+present.
+\item[Derivation] SR-06.
+\item[How performed] End-to-end test searching every file written during the
+run.
+\end{testcase}
 
 \subsection{Tests for Nonfunctional Requirements}
 
-\wss{The nonfunctional requirements for accuracy will likely just reference the
-  appropriate functional tests from above.  The test cases should mention
-  reporting the relative error for these tests.  Not all projects will
-  necessarily have nonfunctional requirements related to accuracy.}
+Accuracy tests (SRS Section~12.3, HA SR-09) compare against the native
+reference, and their analysis is in the ML Model Report. Performance tests
+(SRS Sections~12.1 and~12.5) are
+experiments: their output is a table and a plot, and pass or fail is
+decided from confidence intervals, following the SRS timing method
+\citep[Section~12.1]{TandemSRS}
+(\cst{WARMUP\_RUNS} warm-up runs, \cst{TIMED\_PAIRS} alternating timed
+pairs, \cst{BOOTSTRAP\_RESAMPLES} bootstrap resamples at
+\cst{CONFIDENCE\_LEVEL}).
 
-\wss{For some nonfunctional tests, you won't be setting a target threshold for
-passing the test, but rather describing the experiment you will do to measure
-the quality for different inputs.  For instance, you could measure speed versus
-the problem size.  The output of the test isn't pass/fail, but rather a summary
-table or graph.}
+\subsubsection{Accuracy}
 
-\wss{Tests related to usability could include conducting a usability test and
-  survey.  The survey will be in the Appendix.}
+\begin{testcase}{T-QUAL-1}{Same-model reuse gives identical output}
+\item[Type] Dynamic, automatic
+\item[Initial state] Qwen2.5-0.5B-Instruct as both source and target.
+\item[Input/Condition] Fixture F1 and the test-set prompts at each length
+in \cst{CONTEXT\_LENGTHS}, sent as a history turn and a question turn, with
+the cache (a) kept in memory and (b) saved and restored from file between
+the turns.
+\item[Output/Result] Every returned log-probability within
+\cst{SCORE\_ATOL} + \cst{SCORE\_RTOL} $\times$ |native value| of the
+native reference, and identical greedy tokens for \cst{GREEDY\_TOKENS}
+tokens. The largest relative error is reported.
+\item[How performed] Extension of the existing replay experiment, which
+already passed on 9 cases with a largest logit error of
+$5.44\times10^{-5}$ (\texttt{LOCAL\_CACHE\_RESULTS.md}). Traces to
+NFR-05.
+\end{testcase}
 
-\wss{Static tests, review, inspections, and walkthroughs, will not follow the
-format for the tests given below.}
+\begin{testcase}{T-QUAL-2}{Cross-model translation accuracy}
+\item[Type] Dynamic, automatic
+\item[Initial state] Setup S; translator checkpoint frozen before the test
+set is first used.
+\item[Input/Condition] Every test-set prompt at 512 tokens, the passage
+sent to SmolLM and the question to Qwen, with (a) prediction on, (b)
+prediction off (native reference), (c) the question sent alone with no
+history, and (d) prediction on with the affine baseline translator
+configured.
+\item[Output/Result] For (a), (c) and (d) against (b): first-token
+agreement (fraction of prompts), mean matching prefix length out of
+\cst{GREEDY\_TOKENS}, mean next-token KL divergence, and HotpotQA answer F1.
+\textbf{Pass:} the answer F1 of (a) is at most \cst{QUALITY\_LOSS\_LIMIT}
+below that of (b), and above that of (c). Results are reported in a table
+and as plots of each metric against context length.
+\item[How performed] Evaluation script on the cluster. The F1 difference is
+reported as an absolute and a relative error with a bootstrap 95\%
+confidence interval. The test set is used once per checkpoint; no
+threshold or checkpoint is changed after seeing it. Traces to FR-14,
+FR-16 and SR-09.
+\end{testcase}
 
-\wss{If you introduce static tests in your plan, you need to provide details.
-How will they be done?  In cases like code (or document) walkthroughs, who will
-be involved? Be specific.}
+\subsubsection{Performance}
 
-\subsubsection{Area of Testing1}
-		
-\paragraph{Title for Test}
+\begin{testcase}{T-PERF-1}{TTFT against context length}
+\item[Type] Dynamic, automatic, experiment
+\item[Initial state] Setup S on one cluster GPU; no other jobs on that GPU.
+\item[Input/Condition] Test-set prompts at each length in
+\cst{CONTEXT\_LENGTHS}, with the question placed at the start, middle and
+end, in four arms: native prefill; same-model warm cache; same-model cache
+restored from file; translated cache, timed from the switch and including
+translation, checks and loading.
+\item[Output/Result] Median and 95th-percentile TTFT per arm and length
+with confidence intervals; computed prompt tokens per arm; a breakdown of
+the translated arm into translation, check, load and suffix prefill time;
+a plot of TTFT against context length for all four arms; and, not
+pass/fail, peak allocated memory per arm, cache size per token and GPU time
+per completed request including translation. \textbf{Pass
+(NFR-04)} if, at some length, the translated arm processes fewer prompt
+tokens and the upper confidence bound of its median TTFT is below the lower
+bound of the native median, with \tref{T-QUAL-2} passing.
+\item[How performed] Benchmark script; results and command committed and
+analysed in the Performance Report. Also verifies the SR-10 fit criterion
+that the check keeps TTFT below native.
+\end{testcase}
 
-\begin{enumerate}
+\begin{testcase}{T-PERF-2}{Serving benchmark}
+\item[Type] Dynamic, automatic, experiment
+\item[Initial state] Serving integration; Setup S.
+\item[Input/Condition] (1) A workload of conversations with model switches
+at three arrival rates, with the same arrival times in both arms.
+(2) Same-model and no-history workloads, with \progname{} installed and with
+the unmodified engine. (3) At the middle rate of (1), all predicted caches
+invalidated at once.
+\item[Output/Result] Throughput and p95 TTFT per rate and arm, plotted as
+throughput against p95 TTFT. \textbf{Pass (NFR-07)} if in (1) throughput
+is higher and p95 TTFT rises by at most \cst{REGRESSION\_LIMIT}, with no
+extra failures. \textbf{Pass (NFR-08)} if in (2) the confidence bounds show
+median and p95 TTFT increases and throughput loss of at most
+\cst{REGRESSION\_LIMIT}. \textbf{Pass (SR-13)} if in (3) admitted requests
+stay within \cst{REGRESSION\_LIMIT} of the same load without \progname{},
+requests beyond \cst{QUEUE\_LIMIT} get the retry status instead of timing
+out, and reuse turns off once the fallback rate over
+\cst{FALLBACK\_WINDOW} requests exceeds \cst{FALLBACK\_RATE\_LIMIT}.
+\item[How performed] Benchmark script; from Rev~0; analysed in the
+Performance Report.
+\end{testcase}
 
-\item{test-id1\\}
+\subsubsection{Setup, Documentation and Reports}
 
-Type: Functional, Dynamic, Manual, Static etc.
-					
-Initial State: 
-					
-Input/Condition: 
-					
-Output/Result: 
-					
-How test will be performed: 
-					
-\item{test-id2\\}
+\begin{testcase}{T-DOC-1}{Independent setup walkthrough}
+\item[Type] Static, manual
+\item[Initial state] A clean machine or cluster account with the listed
+prerequisites.
+\item[Input/Condition] A reviewer who did not write the instructions
+follows the README to install \progname{} and run the basic example. From
+the example's comparison report alone, they then answer: which requests
+reused a cache; which fell back and why; the median TTFT of each arm; and
+whether each test passed or failed. Every reason code produced while running
+this plan's tests is looked up in the documentation.
+\item[Output/Result] The reviewer completes every step without help, fills
+in the record in Appendix~\ref{sec:walkthrough}, and answers all four
+questions correctly; every code has an entry saying what it means and what
+the operator should do. Any step that needed help is a failure and becomes
+an issue.
+\item[How performed] Manual walkthrough before Rev~0; NFR-01, NFR-02,
+NFR-12, DR-01, DR-02.
+\end{testcase}
 
-Type: Functional, Dynamic, Manual, Static etc.
-					
-Initial State: 
-					
-Input: 
-					
-Output: 
-					
-How test will be performed: 
-
-\end{enumerate}
-
-\subsubsection{Area of Testing2}
-
-...
+\begin{testcase}{T-DOC-2}{The test setup can be recreated}
+\item[Type] Dynamic, manual
+\item[Initial state] The recorded hardware, software versions and commands
+of a tested release.
+\item[Input/Condition] A member rebuilds the setup on a different cluster
+node and reruns \tref{T-QUAL-1} and the 512-token case of
+\tref{T-PERF-1}.
+\item[Output/Result] \tref{T-QUAL-1} passes; TTFT medians are reported with
+any hardware or load differences.
+\item[How performed] Manual; NFR-10.
+\end{testcase}
 
 \subsection{Traceability Between Test Cases and Requirements}
 
-\wss{Provide a table that shows which test cases are supporting which
-  requirements.}
+Table~\ref{tab:trace} maps each requirement to its tests. Some requirements
+are also checked by a review or report described in Section~\ref{sec:plan}, noted in
+the last column.
+
+\begin{longtable}{@{}p{0.17\textwidth}p{0.52\textwidth}p{0.24\textwidth}@{}}
+\caption{Requirements and the tests that verify them}\label{tab:trace}\\
+\toprule \textbf{Requirement} & \textbf{Tests} & \textbf{Also}\\\midrule
+\endfirsthead
+\toprule \textbf{Requirement} & \textbf{Tests} & \textbf{Also}\\\midrule
+\endhead
+FR-01 & \tref{T-IN-1} & \\
+FR-02 & \tref{T-IN-2} & \\
+FR-03 & \tref{T-IN-3}, \tref{T-IN-2} & \\
+FR-04 & \tref{T-CACHE-1} & Code walkthrough\\
+FR-05 & \tref{T-CACHE-2}, \tref{T-CACHE-3} & Code walkthrough\\
+FR-06 & \tref{T-FB-1}, \tref{T-CACHE-1} & \\
+FR-07 & \tref{T-FB-2} & Seeded fault\\
+FR-08 & \tref{T-LIFE-1} & \\
+FR-09 & \tref{T-LIFE-1} & \\
+FR-10 & \tref{T-REPORT-1} & \\
+FR-11 & \tref{T-REPORT-1} & \\
+FR-12 & \tref{T-REPORT-1}, \tref{T-PERF-1} & \\
+FR-13 & \tref{T-CONF-1} & \\
+FR-14 & \tref{T-CONF-1}, \tref{T-QUAL-2} & ML Model Report (data
+splits)\\
+FR-15 & \tref{T-LIFE-1} & \\
+FR-16 & \tref{T-CACHE-2}, \tref{T-QUAL-2} & ML Model Report (per-layer
+error, metamorphic checks)\\
+NFR-01 & \tref{T-DOC-1} & \\
+NFR-02 & \tref{T-DOC-1} & \\
+NFR-03 & \tref{T-IN-2} & \\
+NFR-04 & \tref{T-PERF-1} & Performance Report\\
+NFR-05 & \tref{T-QUAL-1} & Advisor review\\
+NFR-06 & \tref{T-FB-2} & \\
+NFR-07 & \tref{T-PERF-2} & Performance Report\\
+NFR-08 & \tref{T-PERF-2} & Performance Report\\
+NFR-09 & \tref{T-IN-1} & \\
+NFR-10 & \tref{T-DOC-2} & \\
+NFR-12 & \tref{T-DOC-1} & \\
+SR-01 & \tref{T-ISOLATION-1} & \\
+SR-02 & \tref{T-CACHE-1} & Seeded fault\\
+SR-03 & \tref{T-LIFE-2} & \\
+SR-04 & \tref{T-ISOLATION-2} & \\
+SR-05 & \tref{T-CONF-1} & \\
+SR-06 & \tref{T-ISOLATION-3} & \\
+SR-09 (HA) & \tref{T-QUAL-2}, \tref{T-CONF-1} & \\
+SR-10 (HA) & \tref{T-FB-3}, \tref{T-PERF-1} & \\
+SR-11 (HA) & \tref{T-CACHE-1} & \\
+SR-12 (HA) & \tref{T-ISOLATION-1} & Documentation review\\
+SR-13 (HA) & \tref{T-PERF-2} & \\
+SR-14 (HA) & \tref{T-LIFE-2} & \\
+DR-01 & \tref{T-DOC-1} & Checklist review\\
+DR-02 & \tref{T-DOC-1} & \\
+\bottomrule
+\end{longtable}
 
 \section{Unit Test Description}
+\label{sec:unit}
 
-\wss{This section should not be filled in until after the MIS (detailed design
-  document) has been completed.}
-
-\wss{Reference your MIS (detailed design document) and explain your overall
-philosophy for test case selection.}  
-
-\wss{To save space and time, it may be an option to provide less detail in this section.  
-For the unit tests you can potentially layout your testing strategy here.  That is, you 
-can explain how tests will be selected for each module.  For instance, your test building 
-approach could be test cases for each access program, including one test for normal behaviour 
-and as many tests as needed for edge cases.  Rather than create the details of the input 
-and output here, you could point to the unit testing code.  For this to work, you code 
-needs to be well-documented, with meaningful names for all of the tests.}
+The unit tests will be written after the MIS \citep{TandemDesign} is
+complete, so this section gives the planned approach only.
 
 \subsection{Unit Testing Scope}
 
-\wss{What modules are outside of the scope.  If there are modules that are
-  developed by someone else, then you would say here if you aren't planning on
-  verifying them.  There may also be modules that are part of your software, but
-  have a lower priority for verification than others.  If this is the case,
-  explain your rationale for the ranking of module importance.}
+The planned modules are the router, the inference runner, the model
+wrapper, the translator, the cache checks, the request records and the
+comparison tool. The cache checks and the fallback logic in the runner have
+the highest priority, because they implement objective~1. The NVIDIA
+classifier and the Hugging Face and vLLM libraries are external and are not
+unit tested.
 
 \subsection{Tests for Functional Requirements}
 
-\wss{Most of the verification will be through automated unit testing.  If
-  appropriate specific modules can be verified by a non-testing based
-  technique.  That can also be documented in this section.}
-
-\subsubsection{Module 1}
-
-\wss{Include a blurb here to explain why the subsections below cover the module.
-  References to the MIS would be good.  You will want tests from a black box
-  perspective and from a white box perspective.  Explain to the reader how the
-  tests were selected.}
-
-\begin{enumerate}
-
-\item{test-id1\\}
-
-Type: \wss{Functional, Dynamic, Manual, Automatic, Static etc. Most will
-  be automatic}
-					
-Initial State: 
-					
-Input: 
-					
-Output: \wss{The expected result for the given inputs}
-
-Test Case Derivation: \wss{Justify the expected value given in the Output field}
-
-How test will be performed: 
-					
-\item{test-id2\\}
-
-Type: \wss{Functional, Dynamic, Manual, Automatic, Static etc. Most will
-  be automatic}
-					
-Initial State: 
-					
-Input: 
-					
-Output: \wss{The expected result for the given inputs}
-
-Test Case Derivation: \wss{Justify the expected value given in the Output field}
-
-How test will be performed: 
-
-\item{...\\}
-    
-\end{enumerate}
-
-\subsubsection{Module 2}
-
-...
+Each access program in the MIS will get one test of normal behaviour and
+one test per edge case (black box, from the MIS), plus tests for each
+branch of the cache checks and fallback logic (white box). Tests that need a
+model use a tiny randomly initialized model with the same cache layout, so
+they run in CI without a GPU or downloads. Existing tests
+(\texttt{test/test\_routing.py}, \texttt{test/test\_classifier.py}) already
+follow this approach for the router. Test names will state the behaviour
+they check, so the test code documents the inputs and outputs.
 
 \subsection{Tests for Nonfunctional Requirements}
 
-\wss{If there is a module that needs to be independently assessed for
-  performance, those test cases can go here.  In some projects, planning for
-  nonfunctional tests of units will not be that relevant.}
-
-\wss{These tests may involve collecting performance data from previously
-  mentioned functional tests.}
-
-\subsubsection{Module ?}
-		
-\begin{enumerate}
-
-\item{test-id1\\}
-
-Type: \wss{Functional, Dynamic, Manual, Automatic, Static etc. Most will
-  be automatic}
-					
-Initial State: 
-					
-Input/Condition: 
-					
-Output/Result: 
-					
-How test will be performed: 
-					
-\item{test-id2\\}
-
-Type: Functional, Dynamic, Manual, Static etc.
-					
-Initial State: 
-					
-Input: 
-					
-Output: 
-					
-How test will be performed: 
-
-\end{enumerate}
-
-\subsubsection{Module ?}
-
-...
+Non-functional requirements are tested at system level in
+Section~\ref{sec:system}. Unit-level timing tests are not planned, because
+timings of single functions on a CI runner do not predict serving
+performance.
 
 \subsection{Traceability Between Test Cases and Modules}
 
-\wss{Provide evidence that all modules have been considered.}
-				
-\bibliographystyle{plainnat}
+To be completed with the MIS.
 
+\bibliographystyle{plainnat}
 \bibliography{../../refs/References}
 
 \newpage
 
 \section{Appendix}
 
-This is where you can place additional information.
-
 \subsection{Symbolic Parameters}
+\label{sec:constants}
 
-The definition of the test cases will call for SYMBOLIC\_CONSTANTS.
-Their values are defined in this section for easy maintenance.
+Values from the SRS are copied from it. Values for the Hazard Analysis
+constants and this plan's own constants are initial values for the PoC;
+they will be reviewed on development data before final tests, and are not
+changed after a final test fails (SRS, OI3).
 
-\subsection{Usability Survey Questions?}
+\begin{longtable}{@{}p{0.33\textwidth}p{0.22\textwidth}p{0.38\textwidth}@{}}
+\caption{Symbolic parameters}\label{tab:constants}\\
+\toprule \textbf{Constant} & \textbf{Value} & \textbf{Meaning and
+source}\\\midrule
+\endfirsthead
+\toprule \textbf{Constant} & \textbf{Value} & \textbf{Meaning and
+source}\\\midrule
+\endhead
+\cst{SCORE\_ATOL} & 0.001 & Absolute logit tolerance (SRS)\\
+\cst{SCORE\_RTOL} & 0.001 & Relative logit tolerance (SRS)\\
+\cst{GREEDY\_TOKENS} & 32 & Generated tokens compared (SRS)\\
+\cst{REGRESSION\_LIMIT} & 0.05 & Allowed fractional slowdown or throughput
+loss (SRS NFR-07, NFR-08)\\
+\cst{CONFIDENCE\_LEVEL} & 0.95 & Confidence level for intervals (SRS)\\
+\cst{BOOTSTRAP\_RESAMPLES} & 2,000 & Bootstrap resamples (SRS)\\
+\cst{WARMUP\_RUNS} & 3 & Untimed warm-up runs (SRS)\\
+\cst{TIMED\_PAIRS} & 10 & Alternating timed pairs (SRS)\\
+\cst{LEAK\_CYCLES} & 100 & Completion/failure/cancellation cycles (SRS
+FR-09)\\
+\cst{QUALITY\_LOSS\_LIMIT} & 0.05 & Largest allowed drop in HotpotQA answer
+F1 (absolute) against native prefill (HA SR-09)\\
+\cst{CANARY\_TOKENS} & 16 & Final history tokens recomputed by the run-time
+check (HA SR-10)\\
+\cst{CANARY\_LIMIT} & 0.5 & Largest relative K/V error at those tokens
+(HA SR-10)\\
+\cst{FALLBACK\_WINDOW} & 100 requests & Window for the fallback rate (HA
+SR-13)\\
+\cst{FALLBACK\_RATE\_LIMIT} & 0.5 & Fallback rate that turns reuse off (HA
+SR-13)\\
+\cst{QUEUE\_LIMIT} & 32 requests & Requests that may wait for prefill (HA
+SR-13)\\
+\cst{PREDICTED\_CACHE\_LIMIT} & 2 GiB & Memory for unused predicted caches
+(HA SR-14)\\
+\cst{PREDICTED\_CACHE\_TTL} & 60 s & Lifetime of an unused predicted cache
+(HA SR-14)\\
+\cst{TEST\_PROMPTS} & 50 & Held-out test prompts, document-disjoint from
+training and selection data\\
+\cst{CONTEXT\_LENGTHS} & 128, 512, 1,024 tokens & History lengths tested,
+matching the existing replay experiment\\
+\cst{MAX\_PROMPT\_TOKENS} & 2,048 & Longest supported prompt in the PoC\\
+\cst{CONCURRENT\_REQUESTS} & 8 & Simultaneous requests in lifecycle tests\\
+\cst{TEST\_TIMEOUT} & 2 s & Request timeout used in \tref{T-LIFE-1}\\
+\cst{MEMORY\_TOLERANCE} & 1 MiB & Allowed memory difference after a cycle\\
+\cst{SECRET\_MARKER} & \texttt{TANDEM-SECRET-}\allowbreak\texttt{7f3a} & String searched for in
+logs\\
+\bottomrule
+\end{longtable}
 
-\wss{This is a section that would be appropriate for some projects.}
+\subsection{Setup Walkthrough Record}
+\label{sec:walkthrough}
 
-\newpage{}
+\progname{} has no graphical interface, so no usability survey is planned.
+For \tref{T-DOC-1}, the reviewer records:
+\begin{enumerate}
+  \item For each README step: completed without help (yes/no), time taken,
+  and any error message.
+  \item Which prerequisite, if any, was missing from the list.
+  \item Whether the basic example's output matched the README.
+  \item Whether the reviewer could tell, from the example output, if a
+  cache was reused or the request fell back.
+  \item The single most confusing part of the instructions.
+\end{enumerate}
+
+\newpage
 
 \section{Appendix --- Generative AI Use Disclosure}
 
-\wss{ChatGPT (version 5) was used to brainstorm ideas for the template for this disclose section.}
-
 \subsection{AI Tools Used}
 
-\wss{Give the name of the AI tool(s) used and the version.}
+Claude Code, running Claude Opus 5.5 (Anthropic).
 
 \subsection{How and Where Used}
 
-\wss{Explain what the tool(s) were used for.  Examples include: brainstorming,
-explaining a technical concept, reviewing the document, generating or modifying
-text, generating or modifying diagrams, identifying errors or omissions or
-inconsistencies.}
-
-\wss{For each of the uses, identify which parts of the document were affected.}
-
-\wss{You do not need to report every interaction, but you should disclose the 
-uses that materially contributed to your work}
+\begin{itemize}
+  \item \textbf{Drafting:} Claude drafted this plan from SRS version 0.2,
+  the Hazard Analysis, the course VnV template, checklist and lecture
+  slides, the notes from the October 28 TA meeting, and the team's existing
+  experiments and pull requests.
+  \item \textbf{Consistency checking:} Claude checked that every SRS and HA
+  requirement appears in the traceability table, and identified the SRS
+  changes the tests depend on.
+  \item \textbf{Merging an earlier draft:} Justin Kwinecki's draft (PR
+  \#61), written with OpenAI Codex, was compared with this plan. Its native
+  repeatability check, zero-norm case, fixed-request isolation test and
+  planted-code fixture were adapted into this version.
+\end{itemize}
 
 \subsection{Verification of AI-Generated Content}
 
-\wss{\begin{itemize}
-    \item Describe how the team checked AI-generated or AI-assisted material
-    before including it in the document.
-    \item In particular, verify factual claims, technical assertions,
-    requirements, calculations, references, and other information for which an
-    AI system may produce incorrect or fabricated results.
-    \item \textbf{The team is responsible for the accuracy, completeness,
-consistency, and appropriateness of the submitted document, regardless of
-whether material was generated by a human or an AI system.}
-\end{itemize}}
+The requirement IDs were checked against the SRS and HA on the
+\texttt{main} branch, and the replay results against
+\texttt{LOCAL\_CACHE\_RESULTS.md}. The team reviews every test, the role
+assignments and the constant values before submission. The team is
+responsible for the accuracy, completeness and consistency of this
+document.
 
 \newpage{}
 
 \section{Appendix --- Reflection}
 
-\wss{This section is not required for CAS 741}
-
-The information in this section will be used to evaluate the team members on the
-graduate attribute of Lifelong Learning.
-
 \input{../Reflection.text}
 
 \begin{enumerate}
-  \item What went well while writing this deliverable? 
+  \item What went well while writing this deliverable?
+
+  This document was easy to write because most of what it needs was
+  already in our other documents: the requirements and fit criteria in the
+  SRS, the safety requirements in the Hazard Analysis, and the tools in the
+  Development Plan. We could reference them instead of repeating them, so
+  this plan acts as a connector between the earlier documents. Building the
+  traceability table also let us check that they did not contradict each
+  other.
+
   \item What pain points did you experience during this deliverable, and how
     did you resolve them?
-  \item What knowledge and skills will the team collectively need to acquire to
-  successfully complete the verification and validation of your project?
-  Examples of possible knowledge and skills include dynamic testing knowledge,
-  static testing knowledge, specific tool usage, Valgrind etc.  You should look to
-  identify at least one item for each team member.
-  \item For each of the knowledge areas and skills identified in the previous
-  question, what are at least two approaches to acquiring the knowledge or
-  mastering the skill?  Of the identified approaches, which will each team
-  member pursue, and why did they make this choice?
+
+  The hardest part was bringing in the decisions we had made outside our
+  documents, such as the model pair and translating in one direction first,
+  agreed at the TA meeting and in pull requests. Because this plan connects
+  the earlier documents, it showed where they no longer match those
+  decisions, for example NFR-05 requiring identical output, which a
+  cross-model translator cannot give. We wrote the tests against the
+  decisions we had made and recorded the changes the SRS, Hazard Analysis
+  and Development Plan now need.
+
+  \item What knowledge and skills will the team collectively need to acquire
+  to successfully complete the verification and validation of your project?
+  Examples of possible knowledge and skills include dynamic testing
+  knowledge, static testing knowledge, specific tool usage, Valgrind etc.
+  You should look to identify at least one item for each team member.
+
+  Each skill follows from the member's role in this plan.
+  \begin{itemize}
+    \item \textbf{William Pol:} fault injection through configuration, to
+    make each failure in the fallback tests happen on demand without patching
+    code; and structured requirements review (checklists and task-based
+    inspection) for leading SRS verification.
+    \item \textbf{Zayed Umer:} component-level evaluation of a learned model:
+    per-layer error, metamorphic checks for a model with no exact oracle,
+    and keeping training, selection and test data apart.
+    \item \textbf{Justin Kwinecki:} continuous integration with GitHub
+    Actions using small CPU-only models, and how vLLM schedules requests and
+    manages its cache, which the lifecycle tests depend on from Rev~0.
+    \item \textbf{Manav Patel:} evaluating generated text (first-token
+    agreement, KL divergence, answer F1 and bootstrap confidence intervals)
+    for the PoC evaluations, and accurate GPU timing for the performance
+    tests.
+    \item \textbf{Musab Mondal:} security and privacy testing: checking
+    that one user's data cannot reach another user's output, the logs or
+    the exports.
+  \end{itemize}
+
+  \item For each of the knowledge areas and skills identified in the
+  previous question, what are at least two approaches to acquiring the
+  knowledge or mastering the skill?  Of the identified approaches, which
+  will each team member pursue, and why did they make this choice?
+
+  \begin{itemize}
+    \item \textbf{Fault injection (William).} (a) Read how established
+    projects add fault-injection settings, such as vLLM's own test suite;
+    (b) add one fault setting to the runner and use it to write
+    \tref{T-FB-2}. William will do (b), because the setting is needed for
+    the tests anyway and building it shows where a failure can actually
+    happen.
+    \item \textbf{Requirements review (William).} (a) Study the course SRS
+    checklist and a past team's review; (b) run the task-based inspection of
+    FR-16, NFR-04 and SR-13 described in Section~\ref{sec:srsver} and
+    compare the result with this plan. William will do (b), because it
+    produces review findings for our own SRS while practising the method.
+    \item \textbf{Component-level model evaluation (Zayed).} (a) Read how
+    published cross-model KV transfer papers evaluate their mappers; (b)
+    extend the existing evaluation scripts from the translator pull request
+    with per-layer error and the metamorphic checks. Zayed will do both,
+    starting with (a), so the metrics match published work before they are
+    coded.
+    \item \textbf{CI and vLLM internals (Justin).} (a) Follow the GitHub
+    Actions documentation and set up a CPU-only workflow with a tiny model;
+    (b) read vLLM's scheduler and prefix-cache code and its tests. Justin
+    will start with (a), because CI is needed for every pull request now,
+    and do (b) before the serving integration at Rev~0.
+    \item \textbf{Evaluating generated text and GPU timing (Manav).} (a)
+    Learn from an existing evaluation framework such as EleutherAI's
+    \texttt{lm-evaluation-harness}, and from the PyTorch and NVIDIA guides
+    on timing GPU code; (b) build the \tref{T-QUAL-2} evaluation directly on
+    the paired dataset, then time the existing same-model replay experiment.
+    Manav will do (b), using (a) as reference, because the PoC
+    demonstration needs these results and the existing experiment gives a
+    known answer to check against.
+    \item \textbf{Security and privacy testing (Musab).} (a) Read the OWASP
+    guidance on testing for information leaks and the published work on
+    timing leaks in prefix caching; (b) write \tref{T-ISOLATION-3} first,
+    planting a marker string and searching every file \progname{} writes.
+    Musab will do (b) first, because it gives a working test quickly, and
+    use (a) to choose what the other isolation tests should look for.
+  \end{itemize}
 \end{enumerate}
 
 \end{document}
