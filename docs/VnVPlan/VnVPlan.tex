@@ -7,6 +7,8 @@
 \usepackage{array}
 \usepackage{amsmath}
 \usepackage{enumitem}
+\usepackage{caption,needspace}
+\captionsetup{hypcap=false}
 \usepackage{hyperref}
 \hypersetup{
     colorlinks,
@@ -19,12 +21,13 @@
 
 \input{../Comments.text}
 \input{../Common.text}
+\AddToHook{env/titlepage/begin}{\thispagestyle{plain}}
 
 \setlength{\emergencystretch}{3em}
 
 % One system test: \begin{testcase}{T-ID}{Title} \item[Field] ... \end{testcase}
 \newenvironment{testcase}[2]
-  {\paragraph{#1: #2}\phantomsection\label{test:#1}\sloppy
+  {\Needspace{8\baselineskip}\paragraph{#1: #2}\phantomsection\label{test:#1}\sloppy
    \begin{description}[style=sameline, leftmargin=3.6cm, labelwidth=3.4cm,
      font=\normalfont\bfseries, itemsep=2pt, topsep=2pt]}
   {\end{description}}
@@ -36,26 +39,31 @@
 
 \title{System Verification and Validation Plan for \progname{}}
 \author{\authname}
-\date{\today}
-
-\maketitle
+\date{November 2, 2026}
 
 \pagenumbering{roman}
+\maketitle
+\setcounter{page}{2}
 
 \section*{Revision History}
 
+\noindent\begin{minipage}{\textwidth}
+\captionof{table}{Revision history}
 \begin{tabularx}{\textwidth}{p{3cm}p{2cm}X}
 \toprule {\bf Date} & {\bf Version} & {\bf Notes}\\
 \midrule
 Nov 2, 2026 & 0.1 & First version, written against SRS version 0.2 and the
 Hazard Analysis.\\
+Nov 2, 2026 & 0.2 & Complete rubric coverage, fixtures, acceptance gates and learning plans.\\
 \bottomrule
 \end{tabularx}
+\end{minipage}
 
 \newpage
 
 \tableofcontents
 
+\listoffigures
 \listoftables
 
 \newpage
@@ -63,6 +71,8 @@ Hazard Analysis.\\
 \section{Symbols, Abbreviations, and Acronyms}
 
 \renewcommand{\arraystretch}{1.2}
+\noindent\begin{minipage}{\textwidth}
+\captionof{table}{Symbols and abbreviations}
 \begin{tabularx}{\textwidth}{lX}
   \toprule
   \textbf{Symbol} & \textbf{Description}\\
@@ -85,6 +95,7 @@ Hazard Analysis.\\
   TTFT & Time to first token\\
   \bottomrule
 \end{tabularx}
+\end{minipage}
 
 \medskip
 \noindent Other terms follow the SRS glossary. Symbolic constants, written
@@ -123,7 +134,7 @@ In order of priority, and following the goals in the SRS
 \citep[Section~5]{TandemHA}, this plan aims to build confidence that:
 
 \begin{enumerate}
-  \item \textbf{A wrong cache never silently produces an answer.} Every
+  \item \textbf{Caches that fail checks never reach generation.} Every
   predicted cache that fails a check, and every unsupported case, falls
   back to normal prefill and records why (FR-04, FR-06, FR-07, SR-02).
   This is the most important quality, because a bad cache gives a fluent
@@ -222,6 +233,22 @@ term.
   the starting point for \tref{T-QUAL-1} and \tref{T-PERF-1}.
 \end{itemize}
 
+\paragraph{Assessment basis.}
+This revision follows the VnV Plan--Main, LO\_Plan and LO\_Reflect rubrics
+retrieved through Brightspace MCP for Avenue course 781906 (assignments
+364168--364170). It supplies a plan, not passing test results. Detailed unit
+tests remain planned until the MIS, as recorded in issue~60.
+
+\begin{figure}[ht]
+\centering
+\fbox{\parbox{0.85\textwidth}{\centering
+Native cache replay controls $\rightarrow$ translator evaluation\\
+$\downarrow$\\
+Isolation and recovery $\rightarrow$ matched GPU performance trials}}
+\caption{Verification order. Failed prerequisites block qualification.}
+\label{fig:gates}
+\end{figure}
+
 \section{Plan}
 \label{sec:plan}
 
@@ -232,6 +259,8 @@ building the right product.
 
 \subsection{Verification and Validation Team}
 
+\noindent\begin{minipage}{\textwidth}
+\captionof{table}{Verification responsibilities}
 \begin{tabularx}{\textwidth}{lX}
 \toprule
 \textbf{Member} & \textbf{Verification role}\\
@@ -261,6 +290,7 @@ Peer team and TA & Review the SRS, design and this plan, and file issues in
 the repository.\\
 \bottomrule
 \end{tabularx}
+\end{minipage}
 
 \medskip
 \noindent The setup walkthrough (\tref{T-DOC-1}) is done by a member who did
@@ -271,8 +301,9 @@ and every pull request needs one approving reviewer other than its author.
 \label{sec:srsver}
 
 \begin{enumerate}
-  \item \textbf{Peer review (done).} Team~1 filed issues \#11--\#16 and
-  \#38--\#43. Each issue is answered in the repository and closed with a
+  \item \textbf{Peer feedback received.} Team~1 filed issues \#11--\#16 and
+  \#38--\#43. These issues remain open at this revision. Each will be
+  answered in the repository and closed with a
   link to the commit that resolves it, or with a reason it is not
   changed.
   \item \textbf{Checklist review.} William Pol, who did not write the SRS, goes
@@ -286,7 +317,7 @@ and every pull request needs one approving reviewer other than its author.
   alone. Differences from this plan's tests point to ambiguous wording.
   \item \textbf{Advisor review meeting} (30 minutes, recorded with the
   supervisor meeting issue template). The team presents the goals, FR-16,
-  NFR-04, the split NFR-05 and the PoC results, then asks:
+  NFR-04, the proposed split of NFR-05 and the PoC results, then asks:
   \begin{enumerate}[label=(\alph*)]
     \item Is a router switching models in the middle of a conversation a
     realistic case in production serving?
@@ -374,11 +405,12 @@ this plan.
   reporting line and branch coverage per module in CI. No target is set
   before Rev~0; after Rev~0 the cache-check and fallback modules must reach
   full branch coverage.
-  \item \textbf{CI:} GitHub Actions runs \texttt{ruff} and the tests that
+  \item \textbf{Planned CI:} GitHub Actions will run \texttt{ruff} and the tests that
   need no GPU or model download (routing, classifier scoring, synthetic
   translator tests) on every pull request. GitHub's runners have no GPU, so
-  GPU tests are run by hand on the department clusters and their results
-  are committed with the exact command.
+  GPU tests run on allocated department GPUs; commit commands, manifests
+  and summary results, and keep large outputs on Hugging Face. Current CI
+  builds documentation; it does not yet establish these Python checks.
   \item \textbf{Performance tools:} \texttt{time.perf\_counter} with
   \texttt{torch.cuda.synchronize} for timing;
   \texttt{torch.cuda.max\_memory\_allocated} for memory; the PyTorch
@@ -414,8 +446,9 @@ All tests are system level, as advised by the TA. Each test drives
 \progname{} only through its external interfaces: requests sent to the
 runner (or, from Rev~0, the serving engine), the configuration, cancellation,
 and stored cache files. Each test observes only what \progname{} returns or
-writes: output tokens and their log-probabilities, final statuses, request
-records, logs and exports, and GPU memory reported by \texttt{nvidia-smi}.
+writes: output tokens, diagnostic next-token logits and log-probabilities,
+final statuses, request records, logs, exports and public cache-ownership
+metrics. GPU process memory is also recorded with \texttt{nvidia-smi}.
 No test calls internal functions, patches code or inspects tensors inside
 the process. Faults are introduced through a fault-injection setting in the
 test configuration, or by editing stored files. Checks of the translator as
@@ -442,27 +475,77 @@ integration run from Rev~0.
   train the translator or to select its checkpoint, truncated to each
   length in \cst{CONTEXT\_LENGTHS}.
   \item \textbf{Planted-code fixture (F1)}: the prompt from the existing
-  replay experiment. Notes containing ``The code is EQBU'' padded with fixed
+  replay experiment. Project Cedar release-code notes padded with fixed
   filler to each length in \cst{CONTEXT\_LENGTHS}, with the code placed
   early, middle or late, followed by the question ``What is the code?''. It
   gives a small, readable check that history was carried over. The native
-  output, not the string EQBU, is the oracle, since the native model itself
+  output, not the planted code, is the oracle, since the native model itself
   misses the code in one of the nine cases.
   \item \textbf{Native reference}: the same request sent with prediction
   turned off, so the target model uses normal prefill.
   \item \textbf{Test trace}: a configuration option, used only with
   synthetic and public prompts, that adds each turn's rendered prompt token
-  IDs and the counts of reused and computed tokens to the request record.
+  IDs, full-vocabulary pre-softmax logits at specified decoding positions,
+  and reused/computed token counts to a restricted diagnostic record.
+  Ordinary records exclude these diagnostic contents.
   \item \textbf{Native repeatability check}: before any accuracy test, the
-  native reference is run twice on every test prompt. If the returned
-  log-probabilities differ
+  native reference is run twice on every test prompt. If corresponding
+  diagnostic logits after identical preceding tokens differ
   by more than \cst{SCORE\_ATOL} + \cst{SCORE\_RTOL} $\times$ |value| or the
   greedy tokens differ, the accuracy tests are marked blocked until the
   cause (for example a non-deterministic kernel) is found, because the
   reference itself cannot be trusted.
-  \item \textbf{Hardware}: one GPU on the department cluster, or the M2
-  laptop with 16~GB of memory for tests marked as runnable locally.
+  \item \textbf{Hardware}: one allocated department GPU. Run a two-prompt
+  smoke test to measure memory before a full job. Local checks use only
+  small synthetic inputs; model downloads and generation stay on the cluster.
 \end{itemize}
+
+\paragraph{Frozen inputs and split.}
+The existing paired-KV experiment has 160 fitting prompts and 40 development
+prompts. Those 40 have informed checkpoint and design choices and are not
+final evaluation data. Record the exact revision and manifest hash from
+\url{https://huggingface.co/datasets/tandemkv/paired-kv-qwen-smollm}.
+For the final 50 prompts, group HotpotQA records connected by a shared
+context document, exclude groups overlapping any of the existing 200
+prompts, sort the remaining IDs, then shuffle with seed 20261102. Freeze
+the first 50 eligible IDs before testing. Insufficient eligible data blocks
+the run. Reusing a final set to select another checkpoint makes it
+additional development data and requires a fresh final set.
+
+Store the exact rendered prompt IDs, suffix boundary, attention masks,
+positions, model/tokenizer/checkpoint revisions and generation settings in
+the manifest. Construct length variants by trimming context only, keeping
+the question and chat delimiters intact; report the achieved token lengths.
+The same prompt may tokenize differently in the two models. Every variant
+of a source document stays in its original split.
+
+For F1, use the deterministic construction in
+\texttt{src/experiments/local\_cache\_poc.py}, function \texttt{prompt},
+with seed 20261027, each declared length, and each of early/middle/late.
+Pin the source commit and tokenizer revision and save the resulting IDs.
+That function uses ``Project Cedar's release code'' and fixed archive-note
+filler; its native output is the oracle, not guaranteed recall of the planted code.
+For multi-turn cases, send the question again on each following turn and
+retain the actual previous assistant reply.
+
+For T-IN-2, the ten user turns are the following JSON strings, decoded as
+UTF-8. Start with system text ``Repeat the user's text'' and retain actual
+assistant replies. Append the pinned model's chat delimiter string as plain
+text to the last turn:
+\begin{verbatim}
+["alpha", "caf\u00e9", "cafe\u0301", "\u4e2d\u6587",
+ "\u0645\u0631\u062d\u0628\u0627", "\ud83d\ude00", "a\tb",
+ "a  b", "line one\n\nline two", "literal delimiter: "]
+\end{verbatim}
+
+\paragraph{Evidence and retention.}
+Record pass, fail, blocked or inconclusive, with expected/observed outcomes,
+command, manifest and per-request records. Store large caches/checkpoints
+on Hugging Face and verify uploaded hashes before deleting local copies.
+Disable real-user tracing. Retain public/synthetic diagnostics through
+review, then delete temporary traces within 30 days after final grading
+unless course retention rules require otherwise. Normal exports exclude
+raw prompts, generated content, logits, KV and credentials.
 
 \subsection{Tests for Functional Requirements}
 
@@ -481,7 +564,7 @@ Data Dictionary \citep[Section~7.2]{TandemSRS}.
 \begin{testcase}{T-IN-1}{Invalid requests are rejected before allocation}
 \item[Control] Automatic
 \item[Initial state] Setup S loaded; no requests running.
-\item[Input] Six requests: (1) no \texttt{request\_id}; (2)
+\item[Input] Eight request cases: (1) no \texttt{request\_id}; (2)
 \texttt{model\_id} = \texttt{"llama-x"}; (3) output cap of 0 tokens; (4) a
 \texttt{request\_id} already used in the run; (5) a prompt of
 \cst{MAX\_PROMPT\_TOKENS}~+~1 tokens; (6) a valid request with no cache;
@@ -489,22 +572,23 @@ Data Dictionary \citep[Section~7.2]{TandemSRS}.
 \cst{CONCURRENT\_REQUESTS}~+~1 simultaneous valid requests.
 \item[Output] Requests 1--5 are rejected with the reason codes
 \texttt{missing\_field}, \texttt{unknown\_model}, \texttt{invalid\_setting},
-\texttt{duplicate\_id} and \texttt{too\_long}; GPU memory in use after
-each rejection equals the value before it; no tokens are generated.
+\texttt{duplicate\_id} and \texttt{too\_long}; no request-owned allocation is created
+for a rejected request; no tokens are generated.
 Requests 6 and 7 complete. In 8, the extra request is queued or rejected
 with a reason, as documented.
 \item[Derivation] FR-01 requires rejection with a reason before resources
 are allocated, and valid cacheless requests to pass; NFR-09 requires the
 published limits to hold at their boundaries.
 \item[How performed] An end-to-end test sends the requests to the runner and
-reads GPU memory from \texttt{nvidia-smi} before and after each one.
+checks that rejected requests allocate no request-owned cache; process
+memory is recorded as supporting evidence, not an exact allocation oracle.
 \end{testcase}
 
 \begin{testcase}{T-IN-2}{The router's model and the full prompt are used}
 \item[Control] Automatic
 \item[Initial state] Setup S; the router replaced by a stub that returns a
 fixed sequence of models.
-\item[Input] A 10-turn conversation from the test set, with the stub
+\item[Input] Ten synthetic turns defined below, with the stub
 returning \texttt{smollm}, \texttt{qwen}, \texttt{qwen}, \texttt{smollm},
 and so on. Its turns include accented Latin letters, Chinese, Arabic, emoji,
 tabs, repeated spaces and the models' own chat delimiter strings as plain
@@ -596,7 +680,7 @@ processed twice. Hugging Face \texttt{generate} returns a cache that does
 not include its final generated token, so this case must be handled
 explicitly.
 \item[How performed] End-to-end test reading the records at every turn;
-runnable locally.
+run on the cluster.
 \end{testcase}
 
 \subsubsection{Fallback and Failure Handling}
@@ -643,15 +727,21 @@ records.
 \item[Control] Automatic
 \item[Initial state] Setup S with the SR-10 check enabled.
 \item[Input] For 20 test-set prompts, a follow-up request using the
-stored predicted cache, and one after Gaussian noise is added to the stored
-file so that the relative error at the last \cst{CANARY\_TOKENS} positions
-is 1.0.
+stored predicted cache, and a copy with Gaussian noise (seed 20261102)
+scaled so its perturbation norm equals the original norm at the last
+\cst{CANARY\_TOKENS} positions. Skip a zero-norm case with a recorded
+reason. Recompute integrity metadata after this synthetic corruption,
+so a checksum failure does not mask the canary behaviour.
 \item[Output] Every noisy cache falls back with reason
 \texttt{check\_failed}. The number of clean predicted caches that pass is
 reported; it must be greater than zero for the check to be useful.
 \item[Derivation] SR-10 fit criterion. Peer review issue \#41 questions
-whether SR-10 is consistent with FR-16; this test is kept only if the SRS
-revision keeps SR-10.
+whether SR-10 is consistent with FR-16. This test remains blocked until
+the SRS permits the bounded recomputation. On development data, measure
+detection among caches that independently fail the approved quality limit
+and false fallback among acceptable caches. Agree on numeric detection and
+false-fallback limits before final testing; a canary passing its own check
+is not evidence that output quality passes.
 \item[How performed] End-to-end test on the cluster.
 \end{testcase}
 
@@ -664,19 +754,25 @@ require the serving integration and run from Rev~0.
 
 \begin{testcase}{T-LIFE-1}{Requests end cleanly}
 \item[Control] Automatic
-\item[Initial state] Setup S in the serving integration, idle, with the
-timeout set to \cst{TEST\_TIMEOUT}; GPU memory in use $M_0$ recorded.
+\item[Initial state] Setup S in the serving integration, with the
+timeout set to \cst{TEST\_TIMEOUT}; one long request already active and
+its cache ownership and process-memory baseline $M_0$ recorded.
 \item[Input] \cst{LEAK\_CYCLES} cycles, each with \cst{CONCURRENT\_REQUESTS}
 overlapping requests that ask the model to repeat a distinct 6-digit code.
 In each cycle one request is cancelled while queued, one is cancelled after
-5 tokens, one asks for 4,000 tokens and exceeds the timeout, and one fails
-through the fault-injection setting. One long request stays active throughout.
+5 tokens, one is paused by the test configuration until the timeout, and one fails
+through the fault-injection setting. Use a barrier after cache acquisition
+to overlap them with the long request; do not rely on model verbosity to
+force a timeout.
 \item[Output] Every output event carries its own request ID, in order, and
-each completed output contains only its own code. Each accepted request has
+each completed output matches its own native reference; correct recall of
+the planted code is not assumed. Each accepted request has
 exactly one final status: \texttt{cancelled}, \texttt{cancelled},
 \texttt{failed} with reason \texttt{timeout}, \texttt{failed}, and
-\texttt{completed} for the rest. After every cycle, GPU memory in use
-minus the active request's memory is within \cst{MEMORY\_TOLERANCE} of $M_0$.
+\texttt{completed} for the rest. After every cycle, ended requests own no private cache allocations;
+active state remains valid and policy-retained caches are accounted for
+separately. Plot process memory against $M_0$, but allocator-reserved
+memory alone does not establish a leak.
 \item[Derivation] FR-08, FR-09 and FR-15. The short timeout replaces the
 120-second default so the test runs quickly.
 \item[How performed] Script on the cluster, plotting memory against cycle
@@ -689,8 +785,8 @@ number.
 generating with predicted cache C.
 \item[Input] (1) While the request is generating, other requests that
 fill cache memory so that C would be evicted, then a request whose history
-would replace C. (2) Predicted caches created for 200
-test-set prompts and never used.
+would replace C. (2) Predicted caches created for 200 synthetic F1 variants, each with
+a distinct history note numbered 1--200, and never used.
 \item[Output] (1) The request's output is identical to an undisturbed run,
 and the serving engine's cache memory metric shows C freed only after the
 request ends. (2) Memory held by unused
@@ -717,7 +813,8 @@ record for another translator version, and a passing record for this one;
 changed to a different target revision, and after \progname{} is
 restarted.
 \item[Output] (1) and (2) are rejected at start-up with a reason. In (3),
-only the last record enables reuse, and turning prediction off makes all
+only the last record, together with passing isolation and recovery
+evidence for this setup, enables reuse. Turning prediction off makes all
 requests use normal prefill. In (4), both uses are rejected with reason \texttt{stale\_cache}.
 \item[Derivation] FR-13; FR-14 with SR-09: missing or failed evidence
 prevents approval; SR-05: caches from an old configuration are never
@@ -733,8 +830,9 @@ reused.
 second pair in which one generation setting differs.
 \item[Output] (1) Each record contains the run ID, request ID, source and
 target models, translator version, timings, computed prompt tokens, final
-status, reuse decision and reason. Computed prompt tokens equal the suffix
-length for the reused request and the full prompt length for the fallback.
+status, reuse decision and reason. Computed prompt tokens equal the suffix length plus any explicitly
+approved canary recomputation for reuse, and the full prompt length for
+fallback. Report attempted prediction and restart work as additional cost.
 A timing that was not measured has a missing-value reason, not a number.
 (2) The first comparison lists the same requests, routing decisions,
 arrival times and settings in both arms and contains every field listed in
@@ -815,10 +913,12 @@ pairs, \cst{BOOTSTRAP\_RESAMPLES} bootstrap resamples at
 in \cst{CONTEXT\_LENGTHS}, sent as a history turn and a question turn, with
 the cache (a) kept in memory and (b) saved and restored from file between
 the turns.
-\item[Output/Result] Every returned log-probability within
+\item[Output/Result] Every corresponding finite diagnostic logit within
 \cst{SCORE\_ATOL} + \cst{SCORE\_RTOL} $\times$ |native value| of the
 native reference, and identical greedy tokens for \cst{GREEDY\_TOKENS}
-tokens. The largest relative error is reported.
+tokens or an earlier shared stop. Unexpected nonfinite values fail.
+Report absolute error where the native score is zero. Run this control
+separately for each base model; existing Qwen results do not qualify SmolLM.
 \item[How performed] Extension of the existing replay experiment, which
 already passed on 9 cases with a largest logit error of
 $5.44\times10^{-5}$ (\texttt{LOCAL\_CACHE\_RESULTS.md}). Traces to
@@ -829,22 +929,29 @@ NFR-05.
 \item[Type] Dynamic, automatic
 \item[Initial state] Setup S; translator checkpoint frozen before the test
 set is first used.
-\item[Input/Condition] Every test-set prompt at 512 tokens, the passage
+\item[Input/Condition] Every test-set prompt at each declared context length, the passage
 sent to SmolLM and the question to Qwen, with (a) prediction on, (b)
 prediction off (native reference), (c) the question sent alone with no
 history, and (d) prediction on with the affine baseline translator
 configured.
 \item[Output/Result] For (a), (c) and (d) against (b): first-token
-agreement (fraction of prompts), mean matching prefix length out of
-\cst{GREEDY\_TOKENS}, mean next-token KL divergence, and HotpotQA answer F1.
-\textbf{Pass:} the answer F1 of (a) is at most \cst{QUALITY\_LOSS\_LIMIT}
-below that of (b), and above that of (c). Results are reported in a table
-and as plots of each metric against context length.
-\item[How performed] Evaluation script on the cluster. The F1 difference is
-reported as an absolute and a relative error with a bootstrap 95\%
-confidence interval. The test set is used once per checkpoint; no
-threshold or checkpoint is changed after seeing it. Traces to FR-14,
-FR-16 and SR-09.
+agreement, mean matching prefix length, exact-sequence agreement and mean
+next-token KL divergence. Compute $D_{KL}(p_{native}\Vert p_{translated})$
+at temperature one after identical native preceding tokens, averaging
+within each prompt and then across prompts. Independent greedy generation
+is evaluated separately; teacher-path agreement is not sequence agreement.
+\textbf{Current SRS pass:} (a) meets the diagnostic-logit tolerances and
+identical greedy-token criterion of \tref{T-QUAL-1}. A failed approximation
+is reported as failed, even if a diagnostic metric improves.
+\item[How performed] Evaluation script on the cluster. Freeze the
+checkpoint and thresholds before final data is inspected. Report every
+length and bootstrap complete prompts, not correlated token positions.
+The HA's alternative answer-F1 loss limit is a proposal pending issue~39;
+it cannot replace NFR-05 until reviewed and adopted in the SRS. If adopted,
+use labelled, untruncated QA inputs with sufficient answer budget and a
+separately approved scoring protocol. Answer labels are unnecessary for
+the native-versus-loaded cache check. Traces to FR-14, FR-16, NFR-05 and
+proposed HA SR-09.
 \end{testcase}
 
 \subsubsection{Performance}
@@ -960,7 +1067,7 @@ NFR-01 & \tref{T-DOC-1} & \\
 NFR-02 & \tref{T-DOC-1} & \\
 NFR-03 & \tref{T-IN-2} & \\
 NFR-04 & \tref{T-PERF-1} & Performance Report\\
-NFR-05 & \tref{T-QUAL-1} & Advisor review\\
+NFR-05 & \tref{T-QUAL-1}, \tref{T-QUAL-2} & Advisor review\\
 NFR-06 & \tref{T-FB-2} & \\
 NFR-07 & \tref{T-PERF-2} & Performance Report\\
 NFR-08 & \tref{T-PERF-2} & Performance Report\\
@@ -1101,11 +1208,14 @@ For \tref{T-DOC-1}, the reviewer records:
 
 \newpage
 
-\section{Appendix --- Generative AI Use Disclosure}
+\section{Appendix: Generative AI Use Disclosure}
 
 \subsection{AI Tools Used}
 
-Claude Code, running Claude Opus 5.5 (Anthropic).
+The preceding draft records Claude Code with Claude Opus 5.5 (Anthropic).
+This completion used OpenAI Codex (GPT-6 family; exact serving build not
+exposed), desktop host 26.1027.30824, build 22943, on November 2, 2026.
+Brightspace MCP supplied the Main, LO\_Plan and LO\_Reflect rubrics.
 
 \subsection{How and Where Used}
 
@@ -1125,6 +1235,13 @@ Claude Code, running Claude Opus 5.5 (Anthropic).
 
 \subsection{Verification of AI-Generated Content}
 
+Codex checked the live course rubrics, current SRS IDs, HA proposals and
+open issues 38--43; corrected test oracles and split handling; compiled the
+LaTeX; and inspected the rendered pages. It drafted the learning plans at
+Zayed's request using his stated interest in pretraining and efficient
+translation. Other members' learning choices remain proposed. No tests or
+stakeholder approvals are claimed by this editing work.
+
 The requirement IDs were checked against the SRS and HA on the
 \texttt{main} branch, and the replay results against
 \texttt{LOCAL\_CACHE\_RESULTS.md}. The team reviews every test, the role
@@ -1134,103 +1251,30 @@ document.
 
 \newpage{}
 
-\section{Appendix --- Reflection}
+\section{Appendix: Reflection}
+\subsection{What Went Well}
+Separating cache replay, translation quality and serving performance gave the plan a clear order. Each stage now has its own evidence: native-cache controls establish whether the loading path works; prediction tests measure how much behaviour changes; matched timing trials establish whether translation saves time. Reusing the SRS IDs also made missing tests and conflicting requirements visible without adding unrelated experiments.
 
-\input{../Reflection.text}
+\subsection{Difficulties and Resolutions}
+Our earlier QA checks mixed two questions: whether a base model answers a question correctly and whether loading a cache preserves that model's behaviour. A wrong native answer can still be replayed correctly. \tref{T-QUAL-1} compares native prefill with loaded native prefill on the same prompt, while \tref{T-QUAL-2} evaluates cross-model approximation separately. We will define the oracle before the next experiment so that a failed test points to the component being tested.
 
-\begin{enumerate}
-  \item What went well while writing this deliverable?
+The other difficulty is that the SRS requires near-identical outputs while the HA proposes bounded quality loss and a runtime canary. Writing a convenient threshold here would hide that disagreement. This plan retains the current SRS check and ties the unresolved alternatives to issues 39 and 41. Resolving them on development data before final evaluation is necessary to make the eventual result credible. We also separated the repeatedly used 40 development prompts from a fresh final set to avoid overstating generalization.
 
-  This document was easy to write because most of what it needs was
-  already in our other documents: the requirements and fit criteria in the
-  SRS, the safety requirements in the Hazard Analysis, and the tools in the
-  Development Plan. We could reference them instead of repeating them, so
-  this plan acts as a connector between the earlier documents. Building the
-  traceability table also let us check that they did not contradict each
-  other.
+\subsection{Skills and Learning Approaches}
+The following individual plans are proposed for team adoption. Each compares two approaches and selects a concrete starting point; they do not claim that the study or team agreement has already occurred.
 
-  \item What pain points did you experience during this deliverable, and how
-    did you resolve them?
+\paragraph{Zayed Umer: pretraining and efficient cache translation.}
+The learning goal is to understand how pretrained representations and KV state affect translator design, then build a small translator whose quality and runtime justify its cost. Two approaches are a structured study of transformer/pretraining material followed by a small reproduction, or direct architecture and loss-function sweeps. The planned starting point is study plus reproduction: explaining the frozen base models, alignment and training objective should make later ablations interpretable. Evidence of learning will be one controlled comparison that changes one design choice and reports held-out output agreement, parameter count, memory and latency.
 
-  The hardest part was bringing in the decisions we had made outside our
-  documents, such as the model pair and translating in one direction first,
-  agreed at the TA meeting and in pull requests. Because this plan connects
-  the earlier documents, it showed where they no longer match those
-  decisions, for example NFR-05 requiring identical output, which a
-  cross-model translator cannot give. We wrote the tests against the
-  decisions we had made and recorded the changes the SRS, Hazard Analysis
-  and Development Plan now need.
+\paragraph{Justin Kwinecki: inference-engine cache integration.}
+The skill is understanding cache positions, ownership and recovery during decoding. Two approaches are tracing an existing engine's cache API with a minimal example, or building a full serving adapter immediately. The planned choice is the minimal trace first because it isolates suffix-position and lifecycle mistakes. The learning check is a native save/load example that passes \tref{T-QUAL-1}, followed by a deliberately failed load that demonstrates the single-restart rule.
 
-  \item What knowledge and skills will the team collectively need to acquire
-  to successfully complete the verification and validation of your project?
-  Examples of possible knowledge and skills include dynamic testing
-  knowledge, static testing knowledge, specific tool usage, Valgrind etc.
-  You should look to identify at least one item for each team member.
+\paragraph{William Pol: test design and traceability.}
+The skill is converting a requirement into a test with independent expected results. Two approaches are studying requirements-based testing examples and reviewing them against our SRS, or learning only by adding cases after bugs appear. The planned choice is the first approach, followed by a peer walkthrough, because it exposes missing or contradictory criteria before implementation. The learning check is a reviewed requirement-to-test matrix with a runnable input and oracle for each entry.
 
-  Each skill follows from the member's role in this plan.
-  \begin{itemize}
-    \item \textbf{William Pol:} fault injection through configuration, to
-    make each failure in the fallback tests happen on demand without patching
-    code; and structured requirements review (checklists and task-based
-    inspection) for leading SRS verification.
-    \item \textbf{Zayed Umer:} component-level evaluation of a learned model:
-    per-layer error, metamorphic checks for a model with no exact oracle,
-    and keeping training, selection and test data apart.
-    \item \textbf{Justin Kwinecki:} continuous integration with GitHub
-    Actions using small CPU-only models, and how vLLM schedules requests and
-    manages its cache, which the lifecycle tests depend on from Rev~0.
-    \item \textbf{Manav Patel:} evaluating generated text (first-token
-    agreement, KL divergence, answer F1 and bootstrap confidence intervals)
-    for the PoC evaluations, and accurate GPU timing for the performance
-    tests.
-    \item \textbf{Musab Mondal:} security and privacy testing: checking
-    that one user's data cannot reach another user's output, the logs or
-    the exports.
-  \end{itemize}
+\paragraph{Musab Mondal: cache isolation and failure testing.}
+The skill is reasoning about shared state, permission boundaries and cleanup. Two approaches are studying lifecycle/threat-model examples and constructing a small fault-injection harness, or relying on broad end-to-end stress runs. The planned choice is the focused harness because synthetic secrets and controlled interleavings make a failure attributable. The learning check is demonstrating rejection of cross-group reuse and safe cleanup while another request still holds the cache.
 
-  \item For each of the knowledge areas and skills identified in the
-  previous question, what are at least two approaches to acquiring the
-  knowledge or mastering the skill?  Of the identified approaches, which
-  will each team member pursue, and why did they make this choice?
-
-  \begin{itemize}
-    \item \textbf{Fault injection (William).} (a) Read how established
-    projects add fault-injection settings, such as vLLM's own test suite;
-    (b) add one fault setting to the runner and use it to write
-    \tref{T-FB-2}. William will do (b), because the setting is needed for
-    the tests anyway and building it shows where a failure can actually
-    happen.
-    \item \textbf{Requirements review (William).} (a) Study the course SRS
-    checklist and a past team's review; (b) run the task-based inspection of
-    FR-16, NFR-04 and SR-13 described in Section~\ref{sec:srsver} and
-    compare the result with this plan. William will do (b), because it
-    produces review findings for our own SRS while practising the method.
-    \item \textbf{Component-level model evaluation (Zayed).} (a) Read how
-    published cross-model KV transfer papers evaluate their mappers; (b)
-    extend the existing evaluation scripts from the translator pull request
-    with per-layer error and the metamorphic checks. Zayed will do both,
-    starting with (a), so the metrics match published work before they are
-    coded.
-    \item \textbf{CI and vLLM internals (Justin).} (a) Follow the GitHub
-    Actions documentation and set up a CPU-only workflow with a tiny model;
-    (b) read vLLM's scheduler and prefix-cache code and its tests. Justin
-    will start with (a), because CI is needed for every pull request now,
-    and do (b) before the serving integration at Rev~0.
-    \item \textbf{Evaluating generated text and GPU timing (Manav).} (a)
-    Learn from an existing evaluation framework such as EleutherAI's
-    \texttt{lm-evaluation-harness}, and from the PyTorch and NVIDIA guides
-    on timing GPU code; (b) build the \tref{T-QUAL-2} evaluation directly on
-    the paired dataset, then time the existing same-model replay experiment.
-    Manav will do (b), using (a) as reference, because the PoC
-    demonstration needs these results and the existing experiment gives a
-    known answer to check against.
-    \item \textbf{Security and privacy testing (Musab).} (a) Read the OWASP
-    guidance on testing for information leaks and the published work on
-    timing leaks in prefix caching; (b) write \tref{T-ISOLATION-3} first,
-    planting a marker string and searching every file \progname{} writes.
-    Musab will do (b) first, because it gives a working test quickly, and
-    use (a) to choose what the other isolation tests should look for.
-  \end{itemize}
-\end{enumerate}
-
+\paragraph{Manav Patel: GPU benchmarking and statistical analysis.}
+The skill is measuring end-to-end cost without hiding prediction overhead or shared-device noise. Two approaches are studying GPU timing and paired comparisons using a small benchmark, or collecting a large timing run first and analyzing it afterward. The planned choice is the small benchmark first so the clock boundaries, cache policy and resampling unit can be checked cheaply. The learning check is a reproducible native-versus-predicted comparison with raw trials, uncertainty and an explanation of any inconclusive result.
 \end{document}
