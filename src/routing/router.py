@@ -1,6 +1,7 @@
 """Prompt -> model choice, by task classification or prompt complexity."""
 from functools import lru_cache
 import math
+import logging
 
 # Experimental policy; calibrate against measured target-model performance.
 TASK_MODELS = {
@@ -59,6 +60,7 @@ def route(prompt: str, mode: str = "task", *, threshold: float = 0.5, task_model
     try:
         result = analyze(prompt)
     except Exception:
+        logging.warning("Classifier failed; falling back to qwen", exc_info=True)
         return "qwen"
     if mode == "task":
         if task_models is None:
