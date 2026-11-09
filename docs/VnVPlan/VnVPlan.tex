@@ -55,6 +55,7 @@
 Nov 2, 2026 & 0.1 & First version, written against SRS version 0.2 and the
 Hazard Analysis.\\
 Nov 2, 2026 & 0.2 & Complete rubric coverage, fixtures, acceptance gates and learning plans.\\
+Nov 8, 2026 & 0.3 & Address peer review issues \#66, \#67 and \#69--\#71.\\
 \bottomrule
 \end{tabularx}
 \end{minipage}
@@ -125,7 +126,9 @@ direction (source to target). The translator is trained on paired KV caches
 that both models produce for the same HotpotQA passages and questions
 \citep{Yang2018HotpotQA}. A small custom router chooses the model, and an
 inference runner built on Hugging Face Transformers runs it. Integration
-with vLLM is planned after the proof of concept.
+with vLLM is planned for December and January, after the proof of concept
+\citep{TandemDevPlan}; Section~\ref{sec:schedule} lists the tests that
+depend on it.
 
 \subsection{Objectives}
 
@@ -411,6 +414,7 @@ this plan.
   GPU tests run on allocated department GPUs; commit commands, manifests
   and summary results, and keep large outputs on Hugging Face. Current CI
   builds documentation; it does not yet establish these Python checks.
+  Justin Kwinecki sets them up before the PoC demonstration.
   \item \textbf{Performance tools:} \texttt{time.perf\_counter} with
   \texttt{torch.cuda.synchronize} for timing;
   \texttt{torch.cuda.max\_memory\_allocated} for memory; the PyTorch
@@ -460,9 +464,25 @@ talks to it as a client would. They are written with \texttt{pytest}, which
 is only the test runner. The unit tests in Section~\ref{sec:unit} also use
 \texttt{pytest}, but call single modules directly.
 
-Tests that need only the runner and the models (accuracy, cache loading and
-\tref{T-PERF-1}) run for the PoC; tests marked as needing the serving
-integration run from Rev~0.
+\paragraph{Schedule.}\phantomsection\label{sec:schedule}
+Tests follow the milestones in the Development Plan \citep{TandemDevPlan},
+and each test's owner is listed in the verification team table. Tests that
+need only the runner and the models (\tref{T-QUAL-1}, \tref{T-QUAL-2},
+\tref{T-CACHE-1} to \tref{T-CACHE-3} and \tref{T-PERF-1}) run for the PoC
+demonstration in mid to late November. The remaining tests run before the
+Rev~0 demonstration in February.
+
+\paragraph{If the serving integration is late.}
+\tref{T-LIFE-1}, \tref{T-LIFE-2} and \tref{T-PERF-2} are the only tests
+for FR-08, FR-09, FR-15, NFR-07, NFR-08, SR-03, SR-13 and SR-14. Until the
+vLLM integration exists, \tref{T-LIFE-1} and case~(2) of \tref{T-LIFE-2}
+run against the Hugging Face runner, once it has a request queue with
+cancellation and timeouts; none of these checks depends on vLLM's
+scheduler. Case~(1) of \tref{T-LIFE-2} (eviction by the engine) and
+\tref{T-PERF-2} measure the serving engine itself and wait for the
+integration. If it is not ready by Rev~0, they are reported as not run,
+with the reason, and NFR-07, NFR-08, SR-13 and the eviction part of SR-03
+remain unverified at Rev~0.
 
 \paragraph{Common setup.} Unless a test says otherwise, it uses:
 \begin{itemize}
@@ -498,6 +518,10 @@ integration run from Rev~0.
   \item \textbf{Hardware}: one allocated department GPU. Run a two-prompt
   smoke test to measure memory before a full job. Local checks use only
   small synthetic inputs; model downloads and generation stay on the cluster.
+  \item \textbf{Same-model turns}: a turn on the model that produced the
+  history uses native processing with the engine's own prefix cache, or
+  the runner's cache from the previous turn, as FR-06 allows; no predicted cache is involved. Its record shows the
+  history as reused, with reason \texttt{same\_model}.
 \end{itemize}
 
 \paragraph{Frozen inputs and split.}
@@ -652,7 +676,7 @@ is processed}
 \item[Initial state] Setup S with the test trace enabled.
 \item[Input] 20 test-set prompts at 512 tokens, each sent as a history
 turn followed by its question as the next turn: (a) both turns to Qwen
-(same-model reuse); (b) the history to SmolLM and the question to Qwen
+(a same-model turn, reusing the prefix cache); (b) the history to SmolLM and the question to Qwen
 (predicted cache).
 \item[Output] In both cases the record of the question turn shows the
 history as reused and the computed target tokens equal to the question's
@@ -695,9 +719,12 @@ apply}
 \item[Input] Five cases on test-set prompts: a turn on the same model; a
 first turn with no history; a missing source cache; a switch from Qwen to
 SmolLM (no translator for that direction); prediction switched off.
-\item[Output] Each uses normal prefill, records the matching reason code,
-and gives greedy output equal to the native reference for
-\cst{GREEDY\_TOKENS} tokens.
+\item[Output] No case uses a predicted cache. Each records its reason code
+(\texttt{same\_model}, \texttt{no\_history}, \texttt{no\_source\_cache},
+\texttt{unsupported\_pair} and \texttt{prediction\_off}, in order) and
+gives greedy output equal to the native reference for
+\cst{GREEDY\_TOKENS} tokens. The same-model turn may reuse its own cache,
+as in the common setup.
 \item[Derivation] FR-06 requires native processing to stay available and
 unchanged when reuse is unavailable or unsuitable.
 \item[How performed] End-to-end test.
@@ -727,21 +754,24 @@ records.
 \item[Control] Automatic
 \item[Initial state] Setup S with the SR-10 check enabled.
 \item[Input] For 20 test-set prompts, a follow-up request using the
-stored predicted cache, and a copy with Gaussian noise (seed 20261102)
-scaled so its perturbation norm equals the original norm at the last
-\cst{CANARY\_TOKENS} positions. Skip a zero-norm case with a recorded
+stored predicted cache, and copies with Gaussian noise (seed 20261102)
+scaled to relative errors of 0.4, 0.6 and 1.0 at the last
+\cst{CANARY\_TOKENS} positions: either side of \cst{CANARY\_LIMIT}, and
+well above it. Skip a zero-norm case with a recorded
 reason. Recompute integrity metadata after this synthetic corruption,
 so a checksum failure does not mask the canary behaviour.
-\item[Output] Every noisy cache falls back with reason
-\texttt{check\_failed}. The number of clean predicted caches that pass is
-reported; it must be greater than zero for the check to be useful.
+\item[Output] Copies at 0.6 and 1.0 fall back with reason
+\texttt{check\_failed}; copies at 0.4 are accepted. On development data,
+the check catches at least \cst{CANARY\_DETECTION\_MIN} of the bad caches,
+and rejects at most \cst{CANARY\_FALSE\_FALLBACK\_MAX} of the good ones. A
+cache is bad if its greedy output differs from the native reference within
+\cst{GREEDY\_TOKENS} tokens, and good otherwise.
 \item[Derivation] SR-10 fit criterion. Peer review issue \#41 questions
-whether SR-10 is consistent with FR-16. This test remains blocked until
-the SRS permits the bounded recomputation. On development data, measure
-detection among caches that independently fail the approved quality limit
-and false fallback among acceptable caches. Agree on numeric detection and
-false-fallback limits before final testing; a canary passing its own check
-is not evidence that output quality passes.
+whether SR-10 is consistent with FR-16. Until the SRS permits the bounded
+recomputation, the check is enabled only in the test configuration, and
+results are reported without counting toward approval. A canary passing
+its own check is not evidence that output quality passes; that is
+\tref{T-QUAL-2}.
 \item[How performed] End-to-end test on the cluster.
 \end{testcase}
 
@@ -749,12 +779,12 @@ is not evidence that output quality passes.
 
 These tests cover output delivery (FR-08), memory release (FR-09),
 cancellation (FR-15) and memory held by caches (SR-03 in SRS
-Section~15.2; SR-14 in HA Section~7). They
-require the serving integration and run from Rev~0.
+Section~15.2; SR-14 in HA Section~7). They run against the runner first,
+then the serving integration (Section~\ref{sec:schedule}).
 
 \begin{testcase}{T-LIFE-1}{Requests end cleanly}
 \item[Control] Automatic
-\item[Initial state] Setup S in the serving integration, with the
+\item[Initial state] Setup S in the runner or serving integration, with the
 timeout set to \cst{TEST\_TIMEOUT}; one long request already active and
 its cache ownership and process-memory baseline $M_0$ recorded.
 \item[Input] \cst{LEAK\_CYCLES} cycles, each with \cst{CONCURRENT\_REQUESTS}
@@ -781,8 +811,8 @@ number.
 
 \begin{testcase}{T-LIFE-2}{Cache memory is protected and bounded}
 \item[Control] Automatic
-\item[Initial state] Setup S in the serving integration; a request
-generating with predicted cache C.
+\item[Initial state] Setup S; case (1) needs the serving integration. A
+request generating with predicted cache C.
 \item[Input] (1) While the request is generating, other requests that
 fill cache memory so that C would be evicted, then a request whose history
 would replace C. (2) Predicted caches created for 200 synthetic F1 variants, each with
@@ -982,20 +1012,26 @@ that the check keeps TTFT below native.
 \item[Type] Dynamic, automatic, experiment
 \item[Initial state] Serving integration; Setup S.
 \item[Input/Condition] (1) A workload of conversations with model switches
-at three arrival rates, with the same arrival times in both arms.
+at each rate in \cst{ARRIVAL\_RATES}, set relative to the unmodified
+engine's maximum throughput for this workload, measured first on the
+benchmark GPU. Arrival times follow a Poisson process with seed
+\cst{ARRIVAL\_SEED}, so both arms and any rerun get the same times.
 (2) Same-model and no-history workloads, with \progname{} installed and with
-the unmodified engine. (3) At the middle rate of (1), all predicted caches
+the unmodified engine. (3) At the highest rate of (1), all predicted caches
 invalidated at once.
 \item[Output/Result] Throughput and p95 TTFT per rate and arm, plotted as
-throughput against p95 TTFT. \textbf{Pass (NFR-07)} if in (1) throughput
-is higher and p95 TTFT rises by at most \cst{REGRESSION\_LIMIT}, with no
-extra failures. \textbf{Pass (NFR-08)} if in (2) the confidence bounds show
+throughput against p95 TTFT. \textbf{Pass (NFR-07)} if in (1), at the 1.0 and 1.5 rates,
+throughput is higher and p95 TTFT rises by at most \cst{REGRESSION\_LIMIT}, with no
+extra failures. Below capacity both arms keep up with arrivals, so the 0.5
+rate is reported only. \textbf{Pass (NFR-08)} if in (2) the confidence bounds show
 median and p95 TTFT increases and throughput loss of at most
 \cst{REGRESSION\_LIMIT}. \textbf{Pass (SR-13)} if in (3) admitted requests
 stay within \cst{REGRESSION\_LIMIT} of the same load without \progname{},
 requests beyond \cst{QUEUE\_LIMIT} get the retry status instead of timing
 out, and reuse turns off once the fallback rate over
 \cst{FALLBACK\_WINDOW} requests exceeds \cst{FALLBACK\_RATE\_LIMIT}.
+The run records the largest number of waiting requests; if it never
+exceeds \cst{QUEUE\_LIMIT}, the queue part is inconclusive, not passed.
 \item[How performed] Benchmark script; from Rev~0; analysed in the
 Performance Report.
 \end{testcase}
@@ -1037,7 +1073,8 @@ any hardware or load differences.
 
 Table~\ref{tab:trace} maps each requirement to its tests. Some requirements
 are also checked by a review or report described in Section~\ref{sec:plan}, noted in
-the last column.
+the last column. The SRS merged SR-07 and SR-08 into FR-01 and FR-07, so
+they have no rows of their own.
 
 \begin{longtable}{@{}p{0.17\textwidth}p{0.52\textwidth}p{0.24\textwidth}@{}}
 \caption{Requirements and the tests that verify them}\label{tab:trace}\\
@@ -1168,6 +1205,14 @@ F1 (absolute) against native prefill (HA SR-09)\\
 check (HA SR-10)\\
 \cst{CANARY\_LIMIT} & 0.5 & Largest relative K/V error at those tokens
 (HA SR-10)\\
+\cst{CANARY\_DETECTION\_MIN} & 0.9 & Fraction of bad predicted caches the
+run-time check must catch (\tref{T-FB-3}). The check backs up the test-set
+approval in SR-09 rather than replacing it, so it need not catch every bad
+cache.\\
+\cst{CANARY\_FALSE\_FALLBACK\_MAX} & 0.1 & Largest fraction of good
+predicted caches the check may reject (\tref{T-FB-3}). Each wrong rejection
+pays for prediction and the check, then full prefill, so a higher rate would
+eat into the TTFT gain NFR-04 requires.\\
 \cst{FALLBACK\_WINDOW} & 100 requests & Window for the fallback rate (HA
 SR-13)\\
 \cst{FALLBACK\_RATE\_LIMIT} & 0.5 & Fallback rate that turns reuse off (HA
@@ -1184,6 +1229,11 @@ training and selection data\\
 matching the existing replay experiment\\
 \cst{MAX\_PROMPT\_TOKENS} & 2,048 & Longest supported prompt in the PoC\\
 \cst{CONCURRENT\_REQUESTS} & 8 & Simultaneous requests in lifecycle tests\\
+\cst{ARRIVAL\_RATES} & 0.5, 1.0, 1.5 & Arrival rates in \tref{T-PERF-2}, as
+multiples of the unmodified engine's measured maximum throughput: below, at
+and above capacity. Higher throughput (NFR-07) can only show at or above
+capacity; 0.5 checks that light load is not slowed (NFR-08).\\
+\cst{ARRIVAL\_SEED} & 20261102 & Seed for the Poisson arrival times\\
 \cst{TEST\_TIMEOUT} & 2 s & Request timeout used in \tref{T-LIFE-1}\\
 \cst{MEMORY\_TOLERANCE} & 1 MiB & Allowed memory difference after a cycle\\
 \cst{SECRET\_MARKER} & \texttt{TANDEM-SECRET-}\allowbreak\texttt{7f3a} & String searched for in
