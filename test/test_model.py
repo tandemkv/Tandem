@@ -98,6 +98,68 @@ class ModelCacheTests(unittest.TestCase):
         model.run('independent', max_new_tokens=1)
         self.assertEqual(model.get_kv_cache().get_seq_length(), 4)
 
+    def test_plain_text_uses_verbatim_tokens(self):
+        model = self.model
+        model.tokenizer.encode.return_value = [10, 11, 12]
+        model.run('Raw training prompt', prompt_mode='plain', max_new_tokens=2)
+        plain_tokens = model.generated_tokens[:]
+        model.tokenizer.encode.assert_called_once_with(
+            'Raw training prompt', add_special_tokens=False)
+        model.tokenizer.apply_chat_template.assert_not_called()
+        model.run_tokens([10, 11, 12], max_new_tokens=2)
+        self.assertEqual(plain_tokens, model.generated_tokens)
+        with self.assertRaisesRegex(ValueError, 'prompt_mode'):
+            model.run('hi', prompt_mode='invalid')
+
+    def test_forced_switch_matches_native_target_with_identical_tokens(self):
+        from src.translation_layer.inference_runner import InferenceRunner, MODEL_NAMES
+
+        # A native-prefill adapter isolates the runner contract from learned
+        # translation quality. Exercise both aliases with an offline tiny model.
+        for source, target in [('qwen', 'smollm'), ('smollm', 'qwen')]:
+            with self.subTest(source=source):
+                model = self.model
+                model.model_name = MODEL_NAMES[source]
+                model.run_tokens([10, 11], max_new_tokens=1)
+                source_ids = [10, 11] + model.generated_tokens
+                source_cache = model.get_kv_cache()
+                original = copy.deepcopy(source_cache)
+                model.model_name = MODEL_NAMES[target]
+                target_prefix, target_suffix = [30, 31, 32, 33], [40, 41]
+
+                def native_adapter(**kwargs):
+                    self.assertIs(kwargs['target_model'], model)
+                    with torch.no_grad():
+                        cache = model._forward(target_prefix, None).past_key_values
+                    cache.tandem_model_name = MODEL_NAMES[target]
+                    return cache, target_suffix
+
+                runner = InferenceRunner(cache_adapter=native_adapter, prompt_mode='plain')
+                runner._models[target] = model
+                _, switched_cache = runner.receive_prompt(
+                    'prefix suffix', model_choice=target, kv_cache=source_cache,
+                    original_text='prefix suffix', prefix_boundary=6,
+                    cached_token_ids=source_ids, max_new_tokens=3)
+                switched_ids = model.generated_tokens[:]
+                model.run_tokens(target_prefix + target_suffix, max_new_tokens=3)
+                self.assertEqual(switched_ids, model.generated_tokens)
+                for actual, expected in zip(switched_cache.layers, model.cache.layers):
+                    torch.testing.assert_close(actual.keys, expected.keys, atol=1e-5, rtol=1e-5)
+                    torch.testing.assert_close(actual.values, expected.values, atol=1e-5, rtol=1e-5)
+                for actual, expected in zip(source_cache.layers, original.layers):
+                    self.assertTrue(torch.equal(actual.keys, expected.keys))
+                    self.assertTrue(torch.equal(actual.values, expected.values))
+
+    def test_loading_configuration_applies_to_model_and_tokenizer(self):
+        with patch('src.models.model.AutoModelForCausalLM.from_pretrained') as load, \
+             patch('src.models.model.AutoTokenizer.from_pretrained') as tokenizer:
+            Model(model_name='checkpoint', device='cuda:1', dtype=torch.bfloat16,
+                  revision='commit')
+        load.assert_called_once_with('checkpoint', torch_dtype=torch.bfloat16,
+                                     revision='commit')
+        load.return_value.to.assert_called_once_with('cuda:1')
+        tokenizer.assert_called_once_with('checkpoint', revision='commit')
+
     def test_bad_cache_and_inputs(self):
         model = self.model
         model.run('Hi', max_new_tokens=1)

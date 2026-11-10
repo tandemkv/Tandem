@@ -6,12 +6,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 
 
 class Model:
-    def __init__(self, *, model_name, kv_cache=None):
+    def __init__(self, *, model_name, kv_cache=None, device="cpu",
+                 dtype=torch.float32, revision=None):
         self.model_name = model_name
+        self.revision = revision
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_name, torch_dtype=torch.float32
-        ).eval()
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model_name, torch_dtype=dtype, revision=revision
+        ).to(device).eval()
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
         self.cache = None
         self.generated_tokens = []
         self._initial_cache = kv_cache
@@ -35,20 +37,25 @@ class Model:
                         or not torch.isfinite(tensor).all()):
                     raise ValueError("incompatible cache: tensor shape, dtype, device or values")
 
-    def run(self, prompt, *, kv_cache=None, is_suffix=False, max_new_tokens=100):
+    def run(self, prompt, *, kv_cache=None, is_suffix=False, max_new_tokens=100,
+            prompt_mode="chat"):
         """Return answer text and expose the completed cache via get_kv_cache().
 
-        Ordinary prompts use the checkpoint's chat template. With a cache, pass
-        only the uncached, already chat-formatted text and set is_suffix=True.
+        Plain-text mode encodes verbatim with add_special_tokens=False.
+        Ordinary chat prompts use the checkpoint's chat template. With a cache, pass
+        only the uncached suffix and set is_suffix=True (include any required
+        chat framing yourself).
         This avoids inserting a second system prompt into an existing chat.
         Explicit caches work on every call; a constructor cache is used once.
         """
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("prompt must be nonempty text")
+        if prompt_mode not in ("chat", "plain"):
+            raise ValueError("prompt_mode must be chat or plain")
         cache = kv_cache if kv_cache is not None else self._initial_cache
         if cache is not None and not is_suffix:
-            raise ValueError("cached prompts must be an uncached chat-formatted suffix (is_suffix=True)")
-        if is_suffix:
+            raise ValueError("cached prompts must be an uncached suffix (is_suffix=True)")
+        if is_suffix or prompt_mode == "plain":
             tokens = self.tokenizer.encode(prompt, add_special_tokens=False)
         else:
             tokens = self.tokenizer.apply_chat_template(
