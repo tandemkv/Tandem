@@ -25,6 +25,27 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(router.route("Ambiguous"), "qwen")
 
     @patch.object(router, "_classifier")
+    def test_classifier_loading_failures_fall_back_to_qwen(self, classifier):
+        for error in (ImportError("dependency missing"), OSError("download failed"),
+                      ValueError("invalid checkpoint")):
+            classifier.side_effect = error
+            for mode in ("task", "complexity"):
+                with self.subTest(error=error, mode=mode), self.assertLogs(level="WARNING") as logs:
+                    self.assertEqual(router.route("Hello", mode), "qwen")
+                self.assertIn("falling back to qwen", logs.output[0])
+                self.assertIn(str(error), logs.output[0])
+
+    @patch.object(router, "_classifier")
+    def test_classifier_runtime_failure_falls_back_but_analyze_raises(self, classifier):
+        classifier.return_value.side_effect = RuntimeError("inference failed")
+        for mode in ("task", "complexity"):
+            with self.subTest(mode=mode), self.assertLogs(level="WARNING") as logs:
+                self.assertEqual(router.route("Hello", mode), "qwen")
+            self.assertIn("inference failed", logs.output[0])
+        with self.assertRaisesRegex(RuntimeError, "inference failed"):
+            router.analyze("Hello")
+
+    @patch.object(router, "_classifier")
     def test_invalid_inputs_do_not_load_model(self, classifier):
         for prompt in [None, 123, "", " \n"]:
             for mode in ("task", "complexity"):
