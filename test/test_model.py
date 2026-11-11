@@ -34,11 +34,14 @@ class ModelCacheTests(unittest.TestCase):
         history = [10, 11, 12] + model.generated_tokens
         cache = model.get_kv_cache()
         before = copy.deepcopy(cache)
+        self.assertEqual(cache.tandem_token_ids, history)
+        self.assertFalse(cache.tandem_turn_complete)
         self.assertEqual(cache.get_seq_length(), len(history))
         for suffix in ([21, 22], [31, 32, 33]):
             model.run_tokens(suffix, kv_cache=cache, max_new_tokens=4)
             cached_tokens = model.generated_tokens[:]
             cached = model.get_kv_cache()
+            self.assertEqual(cached.tandem_token_ids, history + suffix + cached_tokens)
             model.run_tokens(history + suffix, max_new_tokens=4)
             self.assertEqual(cached_tokens, model.generated_tokens)
             self.assertEqual(cached.get_seq_length(), len(history) + len(suffix) + 4)
@@ -80,6 +83,7 @@ class ModelCacheTests(unittest.TestCase):
         model.run_tokens([10, 11], max_new_tokens=5)
         self.assertEqual(len(model.generated_tokens), 1)
         self.assertEqual(model.get_kv_cache().get_seq_length(), 3)
+        self.assertTrue(model.get_kv_cache().tandem_turn_complete)
 
     def test_explicit_suffix_and_constructor_cache(self):
         model = self.model
@@ -111,6 +115,31 @@ class ModelCacheTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'prompt_mode'):
             model.run('hi', prompt_mode='invalid')
 
+    def test_conversation_manager_matches_full_token_replay(self):
+        from src.translation_layer.conversation_manager import ConversationManager
+        from src.translation_layer.inference_runner import InferenceRunner, MODEL_NAMES
+
+        model = self.model
+        model.model_name = MODEL_NAMES['qwen']
+        model.tokenizer.encode.return_value = [21, 22]
+        runner = InferenceRunner()
+        runner._models['qwen'] = model
+        conversation = ConversationManager(runner)
+        with patch('src.translation_layer.inference_runner.router.route', return_value='qwen'):
+            conversation.send('Explain gravity.', max_new_tokens=2)
+            prefix = conversation.cached_token_ids[:]
+            original = conversation.kv_cache
+            conversation.send('How does that affect time?', max_new_tokens=3)
+        generated = model.generated_tokens[:]
+        cached = conversation.kv_cache
+        model.run_tokens(prefix + [21, 22], max_new_tokens=3)
+        self.assertEqual(generated, model.generated_tokens)
+        self.assertEqual(conversation.cached_token_ids, prefix + [21, 22] + generated)
+        self.assertEqual(original.get_seq_length(), len(prefix))
+        for actual, expected in zip(cached.layers, model.cache.layers):
+            torch.testing.assert_close(actual.keys, expected.keys, atol=1e-5, rtol=1e-5)
+            torch.testing.assert_close(actual.values, expected.values, atol=1e-5, rtol=1e-5)
+
     def test_forced_switch_matches_native_target_with_identical_tokens(self):
         from src.translation_layer.inference_runner import InferenceRunner, MODEL_NAMES
 
@@ -132,6 +161,7 @@ class ModelCacheTests(unittest.TestCase):
                     with torch.no_grad():
                         cache = model._forward(target_prefix, None).past_key_values
                     cache.tandem_model_name = MODEL_NAMES[target]
+                    cache.tandem_token_ids = target_prefix[:]
                     return cache, target_suffix
 
                 runner = InferenceRunner(cache_adapter=native_adapter, prompt_mode='plain')
@@ -142,6 +172,8 @@ class ModelCacheTests(unittest.TestCase):
                         conversation_text='prefix suffix', prefix_boundary=6,
                         cached_token_ids=source_ids, max_new_tokens=3)
                 switched_ids = model.generated_tokens[:]
+                self.assertEqual(switched_cache.tandem_token_ids,
+                                 target_prefix + target_suffix + switched_ids)
                 model.run_tokens(target_prefix + target_suffix, max_new_tokens=3)
                 self.assertEqual(switched_ids, model.generated_tokens)
                 for actual, expected in zip(switched_cache.layers, model.cache.layers):
