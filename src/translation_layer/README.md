@@ -1,5 +1,32 @@
 # Local inference runner
 
+For stateful conversations, use `ConversationManager`:
+
+```python
+from src.translation_layer.conversation_manager import ConversationManager
+from src.translation_layer.inference_runner import InferenceRunner
+
+conversation = ConversationManager(InferenceRunner(), current_model="qwen")
+answer = conversation.send("Explain gravity.")
+answer = conversation.send("How does that affect time?", max_new_tokens=100)
+```
+
+The manager owns `history` (user/assistant messages), `kv_cache`,
+`current_model`, `cached_token_ids`, `conversation_text`, and `prefix_boundary`.
+Each successful send updates these together; failed sends preserve prior state.
+Routing uses the new user message. Chat continuations include ChatML framing
+and close an unfinished assistant turn when generation hits the token limit.
+Plain mode separates subsequent messages with a newline. Managers can share a
+runner for sequential calls while retaining independent histories. Create a new
+manager to start a new conversation.
+
+Routing may select a different model from `current_model`. As with direct runner
+calls, switching a populated conversation requires a `cache_adapter`. Adapters
+used with the manager must attach `tandem_token_ids` to the translated prefix
+cache: the exact target token IDs represented by that cache. `Model.run_tokens`
+appends the uncached and generated IDs to this metadata. Without exact prefix
+IDs, the manager rejects the result and retains its previous state.
+
 Run from the repository root using the experiment environment (`torch` and
 `transformers`; the local regression suite was checked with Transformers 5.20.1).
 Models and tokenizers load lazily and remain in memory per runner. The first use

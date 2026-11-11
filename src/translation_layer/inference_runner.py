@@ -50,7 +50,8 @@ class InferenceRunner:
 
     def receive_prompt(self, prompt: str, *, conversation_text: str, current_model: str, kv_cache=None,
                        is_suffix=False, max_new_tokens=100,
-                       cached_token_ids=None, prefix_boundary=None) -> tuple[str, object]:
+                       cached_token_ids=None, prefix_boundary=None,
+                       uncached_suffix: str | None = None) -> tuple[str, object]:
         """Return (answer, cache). No conversation state is reused implicitly.
 
         current_model identifies the session's current model and supplied cache's
@@ -61,11 +62,17 @@ class InferenceRunner:
         so callers need not predict routing. For translation, prefix_boundary is
         its cached prefix end (a Python character offset), and cached_token_ids are the exact
         source IDs represented by the cache, including any framing/generated IDs.
+        uncached_suffix allows routing on the user message while executing a
+        separately framed continuation. It requires a cache and is_suffix=True.
         """
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("prompt must be nonempty text")
         if not isinstance(conversation_text, str) or not conversation_text.strip():
             raise ValueError("conversation_text must be nonempty text including the new prompt")
+        if uncached_suffix is not None and (
+                kv_cache is None or not is_suffix
+                or not isinstance(uncached_suffix, str) or not uncached_suffix.strip()):
+            raise ValueError("uncached_suffix requires nonempty text, a cache and is_suffix=True")
         self._validate_model(current_model)
         choice = router.route(
             prompt, mode=self.mode, threshold=self.complexity_threshold,
@@ -99,7 +106,8 @@ class InferenceRunner:
             answer = model.run_tokens(target_tokens, kv_cache=translated_cache,
                                       max_new_tokens=max_new_tokens)
         else:
-            answer = model.run(prompt, kv_cache=kv_cache, is_suffix=is_suffix,
+            answer = model.run(prompt if uncached_suffix is None else uncached_suffix,
+                               kv_cache=kv_cache, is_suffix=is_suffix,
                                max_new_tokens=max_new_tokens, prompt_mode=self.prompt_mode)
         return answer, model.get_kv_cache()
 
