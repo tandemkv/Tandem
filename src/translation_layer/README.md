@@ -10,14 +10,15 @@ the runner for cluster/training parity. Each revision applies to both weights
 and tokenizer. `Model` accepts `device`, `dtype`, and `revision` directly.
 
 ```python
-from src.routing import router
-from src.translation_layer.inference_runner import InferenceRunner
+from src.translation_layer.inference_runner import InferenceRunner, MODEL_NAMES
 
 runner = InferenceRunner()
 prompt = "Say hello."
-choice = router.route(prompt)
-answer, cache = runner.receive_prompt(prompt, model_choice=choice)
+current_model = "qwen"
+answer, cache = runner.receive_prompt(prompt, conversation_text=prompt, current_model=current_model)
 print(answer)
+current_model = next(alias for alias, name in MODEL_NAMES.items()
+                     if name == cache.tandem_model_name)
 
 # Both supported Instruct checkpoints use ChatML. Include the new turn's framing
 # but no second system prompt. A completed answer includes its final EOS token.
@@ -26,7 +27,8 @@ suffix = (
     "<|im_start|>assistant\n"
 )
 followup, next_cache = runner.receive_prompt(
-    suffix, model_choice=choice, kv_cache=cache, is_suffix=True,
+    suffix, conversation_text=prompt + answer + suffix,
+    current_model=current_model, kv_cache=cache, is_suffix=True,
 )
 print(followup)
 print(cache.get_seq_length(), next_cache.get_seq_length())
@@ -51,11 +53,16 @@ supplied on every request. The default `prompt_mode="chat"` uses
 either mode require `is_suffix=True`.
 
 Caches produced here carry a checkpoint name. For external untagged caches,
-the runner requires `cache_model="qwen"` or `"smollm"`; the caller must ensure
+the required `current_model="qwen"` or `"smollm"` identifies the source; the caller must ensure
 those tensors represent that checkpoint's history and tokenizer. Shape, dtype,
 device, finite values, context length, and tagged provenance are validated.
 Unknown choices and incompatible caches raise `ValueError`. A failed call does
-not change the runner's current selection or mutate the input history.
+not mutate the input history.
+
+`current_model` is required on every call and identifies the session model before
+routing. The router always selects the target; a different selection triggers
+translation when a cache is supplied. After a successful call, use the returned
+cache's checkpoint tag to update the session's current model.
 
 Cross-model cache reuse requires an injected `cache_adapter` callable (#73).
 The runner loads the target before calling `_translate_cache`; the adapter
@@ -69,14 +76,16 @@ runner = InferenceRunner(
     model_revisions={"qwen": "<commit>", "smollm": "<commit>"},
 )
 answer, target_cache = runner.receive_prompt(
-    full_text, model_choice="qwen", kv_cache=source_cache, cache_model="smollm",
-    original_text=full_text, cached_token_ids=source_ids,
+    full_text, current_model="smollm", kv_cache=source_cache,
+    conversation_text=full_text, cached_token_ids=source_ids,
     prefix_boundary=len(prefix_text),
 )
 ```
 
-Import `torch` for this example. `original_text` is the complete source text,
-including the uncached continuation. `prefix_boundary` is the cached prefix's
+Import `torch` for this example. `conversation_text` is required on every call,
+even when no cache is supplied or the model stays the same, because routing is
+decided inside the runner. It is the complete source text, including the new
+prompt (the uncached continuation). On the first call, pass `conversation_text=prompt`. `prefix_boundary` is the cached prefix's
 end as a Python character offset into that text (not a byte or token offset).
 `cached_token_ids` contains every exact source ID represented by the cache,
 including framing and generated tokens; its length must match the cache.
@@ -84,7 +93,7 @@ Callers must retain this metadata; decoding tokens cannot reliably recover the
 original text. Routing still uses the `prompt` argument.
 
 The callable receives keyword arguments `cache`, `source_model` (checkpoint
-name), `target_model` (loaded Model wrapper), `original_text`,
+name), `target_model` (loaded Model wrapper), `conversation_text`,
 `cached_token_ids`, `prefix_boundary`, and `prompt_mode`. The wrapper exposes
 its tokenizer, revision, and underlying model's device/dtype. The adapter
 owns checkpoint selection, tokenizer alignment, chat framing where applicable,

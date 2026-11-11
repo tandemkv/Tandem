@@ -14,20 +14,19 @@ MODEL_NAMES = {
 
 
 class InferenceRunner:
+    
     def __init__(
         self,
         task_models: Mapping[str, str] | None = None,
         *,
         mode: Literal["task", "complexity"] = "task",
         complexity_threshold: float = 0.5,
-        starting_model: str = "qwen",
         prompt_mode: Literal["chat", "plain"] = "chat",
         device="cpu",
         dtype=torch.float32,
         model_revisions: Mapping[str, str] | None = None,
         cache_adapter=None,
     ) -> None:
-        self._validate_model(starting_model)
         if prompt_mode not in ("chat", "plain"):
             raise ValueError("prompt_mode must be chat or plain")
         self.prompt_mode = prompt_mode
@@ -40,49 +39,49 @@ class InferenceRunner:
         self.task_models = task_models
         self.mode = mode
         self.complexity_threshold = complexity_threshold
-        self.current_model = starting_model
         self._models = {}
+
 
     @staticmethod
     def _validate_model(choice):
         if choice not in MODEL_NAMES:
             raise ValueError(f"unknown model {choice!r}; choose from {', '.join(MODEL_NAMES)}")
 
-    def receive_prompt(self, prompt: str, *, model_choice=None, kv_cache=None,
-                       cache_model=None, is_suffix=False, max_new_tokens=100,
-                       original_text=None, cached_token_ids=None, prefix_boundary=None) -> tuple[str, object]:
+
+    def receive_prompt(self, prompt: str, *, conversation_text: str, current_model: str, kv_cache=None,
+                       is_suffix=False, max_new_tokens=100,
+                       cached_token_ids=None, prefix_boundary=None) -> tuple[str, object]:
         """Return (answer, cache). No conversation state is reused implicitly.
 
-        model_choice can be a router result; otherwise route this prompt here.
-        cache_model identifies an external cache's source alias. Caches produced
-        here also carry their checkpoint name. For translation, original_text
-        contains the complete source text, prefix_boundary is its cached prefix
-        end (a Python character offset), and cached_token_ids are the exact
+        current_model identifies the session's current model and supplied cache's
+        source alias. The router selects the model for every request. Tagged
+        caches must agree with current_model. conversation_text is required on every
+        call and contains the complete conversation text, including the new,
+        unprocessed prompt,
+        so callers need not predict routing. For translation, prefix_boundary is
+        its cached prefix end (a Python character offset), and cached_token_ids are the exact
         source IDs represented by the cache, including any framing/generated IDs.
         """
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("prompt must be nonempty text")
-        choice = model_choice if model_choice is not None else router.route(
+        if not isinstance(conversation_text, str) or not conversation_text.strip():
+            raise ValueError("conversation_text must be nonempty text including the new prompt")
+        self._validate_model(current_model)
+        choice = router.route(
             prompt, mode=self.mode, threshold=self.complexity_threshold,
             task_models=self.task_models,
         )
         self._validate_model(choice)
-        owner = None
-        if kv_cache is not None:
-            owner = getattr(kv_cache, "tandem_model_name", None)
-            if cache_model is not None:
-                self._validate_model(cache_model)
-                if owner is not None and owner != MODEL_NAMES[cache_model]:
-                    raise ValueError("cache_model disagrees with cache provenance")
-                owner = MODEL_NAMES[cache_model]
-            if owner is None:
-                raise ValueError("cache_model is required for an untagged external cache")
-        switching = kv_cache is not None and owner != MODEL_NAMES[choice]
-        if switching and self.cache_adapter is not None:
-            if (not isinstance(original_text, str)
-                    or type(prefix_boundary) is not int
-                    or not 0 <= prefix_boundary <= len(original_text)):
-                raise ValueError("translation requires original_text and a character prefix_boundary")
+        if (kv_cache is not None
+                and getattr(kv_cache, "tandem_model_name", None) not in
+                (None, MODEL_NAMES[current_model])):
+            raise ValueError("current_model disagrees with cache provenance")
+        switching = choice != current_model
+        translating = switching and kv_cache is not None
+        if translating and self.cache_adapter is not None:
+            if (type(prefix_boundary) is not int
+                    or not 0 <= prefix_boundary <= len(conversation_text)):
+                raise ValueError("translation requires conversation_text and a character prefix_boundary")
             if (cached_token_ids is None or len(cached_token_ids) != kv_cache.get_seq_length()
                     or any(type(token) is not int or token < 0 for token in cached_token_ids)):
                 raise ValueError("cached_token_ids must match the source cache length")
@@ -92,9 +91,9 @@ class InferenceRunner:
                 revision=self.model_revisions.get(choice),
             )
         model = self._models[choice]
-        if switching:
+        if translating:
             translated_cache, target_tokens = self._translate_cache(
-                kv_cache, owner, model, original_text=original_text,
+                kv_cache, MODEL_NAMES[current_model], model, conversation_text=conversation_text,
                 cached_token_ids=cached_token_ids, prefix_boundary=prefix_boundary,
             )
             answer = model.run_tokens(target_tokens, kv_cache=translated_cache,
@@ -102,17 +101,17 @@ class InferenceRunner:
         else:
             answer = model.run(prompt, kv_cache=kv_cache, is_suffix=is_suffix,
                                max_new_tokens=max_new_tokens, prompt_mode=self.prompt_mode)
-        self.current_model = choice
         return answer, model.get_kv_cache()
 
-    def _translate_cache(self, cache, source_model, target_model, *, original_text,
+
+    def _translate_cache(self, cache, source_model, target_model, *, conversation_text,
                          cached_token_ids, prefix_boundary):
         """Adapter returns (target DynamicCache, exact uncached target IDs).
 
         target_model is the loaded Model wrapper (tokenizer, device, dtype and
         revision available). The adapter owns alignment, checkpoint selection,
         key-position conversion and target cache provenance. It must preserve
-        the input cache. original_text includes the uncached continuation; the
+        the input cache. conversation_text includes the uncached continuation; the
         adapter formats chat mode exactly once when preparing target tokens.
         """
         if self.cache_adapter is None:
@@ -122,6 +121,6 @@ class InferenceRunner:
             )
         return self.cache_adapter(
             cache=cache, source_model=source_model, target_model=target_model,
-            original_text=original_text, cached_token_ids=cached_token_ids,
+            conversation_text=conversation_text, cached_token_ids=cached_token_ids,
             prefix_boundary=prefix_boundary, prompt_mode=self.prompt_mode,
         )

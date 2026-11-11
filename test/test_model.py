@@ -136,10 +136,11 @@ class ModelCacheTests(unittest.TestCase):
 
                 runner = InferenceRunner(cache_adapter=native_adapter, prompt_mode='plain')
                 runner._models[target] = model
-                _, switched_cache = runner.receive_prompt(
-                    'prefix suffix', model_choice=target, kv_cache=source_cache,
-                    original_text='prefix suffix', prefix_boundary=6,
-                    cached_token_ids=source_ids, max_new_tokens=3)
+                with patch('src.translation_layer.inference_runner.router.route', return_value=target):
+                    _, switched_cache = runner.receive_prompt(
+                        'prefix suffix', current_model=source, kv_cache=source_cache,
+                        conversation_text='prefix suffix', prefix_boundary=6,
+                        cached_token_ids=source_ids, max_new_tokens=3)
                 switched_ids = model.generated_tokens[:]
                 model.run_tokens(target_prefix + target_suffix, max_new_tokens=3)
                 self.assertEqual(switched_ids, model.generated_tokens)
@@ -196,14 +197,15 @@ class RealModelTests(unittest.TestCase):
         runner = InferenceRunner()
         for task, choice in [('Chatbot', 'smollm'), ('Code Generation', 'qwen')]:
             with patch.object(router, 'analyze', return_value={'task': task}):
-                answer, cache = runner.receive_prompt('Say hello.', max_new_tokens=16)
+                answer, cache = runner.receive_prompt('Say hello.', conversation_text='Say hello.', current_model=choice, max_new_tokens=16)
             self.assertTrue(answer.strip())
-            self.assertEqual(runner.current_model, choice)
             loaded = runner._models[choice]
             length = cache.get_seq_length()
             suffix = '\n<|im_start|>user\nSay goodbye.<|im_end|>\n<|im_start|>assistant\n'
-            answer, next_cache = runner.receive_prompt(
-                suffix, model_choice=choice, kv_cache=cache, is_suffix=True, max_new_tokens=8)
+            with patch.object(router, 'route', return_value=choice):
+                answer, next_cache = runner.receive_prompt(
+                    suffix, conversation_text='Say hello.' + answer + suffix,
+                    current_model=choice, kv_cache=cache, is_suffix=True, max_new_tokens=8)
             self.assertTrue(answer.strip())
             self.assertIs(runner._models[choice], loaded)
             self.assertEqual(cache.get_seq_length(), length)

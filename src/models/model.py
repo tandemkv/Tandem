@@ -4,7 +4,6 @@ import copy
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 
-
 class Model:
     def __init__(self, *, model_name, kv_cache=None, device="cpu",
                  dtype=torch.float32, revision=None):
@@ -65,6 +64,7 @@ class Model:
         self._initial_cache = None
         return answer
 
+
     @torch.no_grad()
     def run_tokens(self, tokens, *, kv_cache=None, max_new_tokens=100):
         """Run exact uncached token IDs (including chat framing) after a cache.
@@ -98,6 +98,7 @@ class Model:
         self.generated_tokens = generated
         return self.tokenizer.decode(generated, skip_special_tokens=True)
 
+
     def _forward(self, tokens, cache):
         past = 0 if cache is None else cache.get_seq_length()
         device = self.model.device
@@ -108,6 +109,7 @@ class Model:
             position_ids=positions[None, :], cache_position=positions,
             past_key_values=cache, use_cache=True,
         )
+
 
     def get_kv_cache(self):
         return self.cache
