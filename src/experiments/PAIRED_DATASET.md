@@ -25,3 +25,5 @@ uv run --locked --script src/experiments/replay_batch.py --work /path/to/private
 ```
 
 The next experiment fits a mapper on training features, then compares the receiver's logits and predictions from a translated cache against native receiver prefill on the same validation prompt. The goal is to preserve native behavior; gold-answer QA accuracy is outside this initial check. The completed replay tests cover same-model cache restoration, not cross-model transfer. This is an initial HotpotQA-only dataset, not HeteroFold's full calibration corpus.
+
+The [ridge dataset](https://huggingface.co/datasets/tandemkv/paired-kv-qwen-smollm/tree/116b6c972c8fd99e8d0ee92491ec4e436b2ad194/runs/ridge-distillation-800-20261111) adds 800 training prompts and 120 document-disjoint test prompts. `in_160_arm` identifies the original training subset. Gold answers are stored only for testing. `publish_ridge_distillation_data.py` publishes the split from a full distillation run and verifies the uploaded Parquet files.

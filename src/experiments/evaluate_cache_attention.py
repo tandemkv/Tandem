@@ -125,9 +125,15 @@ def main():
                    help='Replay the final prompt token, or the question through Answer:, over the translated prefix')
     p.add_argument('--kv-ablation', action='store_true',
                    help='Also replace translated attention keys or values with native target features; diagnostic only')
+    p.add_argument('--compare-ridge-layers', action='store_true',
+                   help='Fit and evaluate a three-layer ridge map alongside the saved one-layer map and attention')
+    p.add_argument('--calibrated-ridge-file', type=Path,
+                   help='Compare a saved three-layer ridge map before and after calibration')
     p.add_argument('--checkpoint-file', type=Path, help='Evaluate a saved local mapper instead of the original cloud checkpoint')
     p.add_argument('--upload-prefix', help='Unique experiments/... destination')
     args = p.parse_args()
+    if args.compare_ridge_layers and args.calibrated_ridge_file:
+        p.error('Use either --compare-ridge-layers or --calibrated-ridge-file')
     if min(args.limit, args.tokens, args.repeats) < 1 or args.limit > 40:
         p.error('Invalid evaluation limits')
     if args.device == 'cuda' and (not os.environ.get('CUDA_VISIBLE_DEVICES') or not torch.cuda.is_available() or torch.cuda.device_count() != 1):
@@ -171,6 +177,43 @@ def main():
     mapper = CacheAttention(run['config']).to(args.device)
     mapper.load_state_dict(saved['model'])
     mapper.eval()
+    ridge_metadata = None
+    if args.compare_ridge_layers:
+        from cache_ridge import ThreeLayerRidge
+
+        if [s['id'] for s in data.train] != run['train_ids']:
+            raise ValueError('Training split does not match the saved ridge fit')
+        print(f'Fitting three-layer ridge on {len(data.train)} training prompts', flush=True)
+        started = time.perf_counter()
+        three_layer = ThreeLayerRidge(mapper)
+        positions = three_layer.fit(data, run['stride'], run['ridge'])
+        ridge_metadata = {'training_positions': positions, 'training_prompts': len(data.train),
+                          'stride': run['stride'], 'penalty': run['ridge'],
+                          'source_layers_by_target': three_layer.layers.tolist(),
+                          'coefficients': three_layer.weights.numel(),
+                          'fit_seconds': time.perf_counter() - started,
+                          'script_sha256': base.file_sha(Path(__file__).with_name('cache_ridge.py'))}
+        print(f'Ridge fit complete: {ridge_metadata["fit_seconds"]:.1f}s', flush=True)
+    calibration_metadata = None
+    if args.calibrated_ridge_file:
+        from cache_ridge import ThreeLayerRidge
+
+        folded = torch.load(args.calibrated_ridge_file, map_location=args.device, weights_only=True)
+        if folded['parent_sha256'] != checkpoint_sha or folded['manifest_sha256'] != data.manifest_sha:
+            raise ValueError('Calibrated ridge map does not match the checkpoint or dataset')
+        three_layer = ThreeLayerRidge(mapper)
+        calibrated = ThreeLayerRidge(mapper)
+        shape = (2, len(three_layer.layers), 3 * three_layer.source_width + 1, three_layer.target_width)
+        if not torch.equal(three_layer.layers, folded['source_layers']):
+            raise ValueError('Calibrated ridge layer selection differs')
+        for translator, key in ((three_layer, 'ridge'), (calibrated, 'calibrated')):
+            weights = folded[key]
+            if weights.shape != shape or weights.dtype != torch.float32 or not torch.isfinite(weights).all():
+                raise ValueError(f'Invalid {key} weights')
+            translator.weights = weights
+        calibration_metadata = {key: folded[key] for key in ('rank', 'best_epoch', 'train_prompts',
+                                'validation_prompts', 'pilot', 'trainable_parameters', 'seconds')}
+        calibration_metadata['map_sha256'] = base.file_sha(args.calibrated_ridge_file)
     spec = base.MODELS[run['target']]
     tokenizer = AutoTokenizer.from_pretrained(spec['id'], revision=spec['revision'])
     receiver = AutoModelForCausalLM.from_pretrained(spec['id'], revision=spec['revision'], dtype=torch.float32,
@@ -180,6 +223,10 @@ def main():
     eos_ids = set(eos if isinstance(eos, list) else [eos])
     translation_args = SimpleNamespace(source=run['source'], target=run['target'], device=args.device, batch=run['batch'])
     methods = {'affine': (mapper, True, None), 'attention': (mapper, False, None)}
+    if args.compare_ridge_layers or args.calibrated_ridge_file:
+        methods['three_layer_ridge'] = (three_layer, True, None)
+    if args.calibrated_ridge_file:
+        methods['calibrated_ridge'] = (calibrated, True, None)
     if args.kv_ablation:
         methods.update(native_keys_mapped_values=(mapper, False, 'keys'),
                        mapped_keys_native_values=(mapper, False, 'values'))
@@ -230,6 +277,8 @@ def main():
     report = {'dataset_revision': run['dataset_revision'], 'checkpoint_revision': checkpoint_revision,
               'checkpoint': checkpoint_name, 'checkpoint_sha256': checkpoint_sha, 'split': 'validation',
               'handoff': args.handoff,
+              'three_layer_ridge_fit': ridge_metadata,
+              'ridge_calibration': calibration_metadata,
               'oracle_kv_ablation': args.kv_ablation,
               'oracle_note': 'Native-component substitutions require receiver prefill and are diagnostic only. They test interacting components, not an additive decomposition of error. Oracle methods are not timed.' if args.kv_ablation else None,
               'note': 'Development prompts used for checkpoint selection; not a held-out final test.',
