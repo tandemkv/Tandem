@@ -1,5 +1,7 @@
 # Tandem Source Code
 
-- `experiments/`: same-model KV cache replay experiments.
-- [`routing/`](routing/README.md): local `route(prompt, mode="task" | "complexity")`
-  returning `"qwen"` or `"smollm"`, without invoking either target model.
+- `experiments/`: cache replay experiments.
+- `experiments/poc/`: optional Qwen/SmolLM/NVIDIA demo wiring and entry points.
+- [`routing/`](routing/README.md): model-independent routing using a supplied classifier and policy.
+- [`adapters/`](adapters/README.md): optional model implementations and their dependencies.
+- [`translation_layer/`](translation_layer/README.md): inference, cache handoff, and conversation management.

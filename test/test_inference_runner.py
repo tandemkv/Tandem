@@ -1,116 +1,178 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from src.translation_layer.inference_runner import InferenceRunner, MODEL_NAMES
+from src.translation_layer.inference_runner import InferenceRunner
 
 
 class RunnerTests(unittest.TestCase):
-    @patch('src.translation_layer.inference_runner.Model')
-    @patch('src.translation_layer.inference_runner.router.route')
-    def test_conversation_text_is_required_before_routing(self, route, model_class):
-        runner = InferenceRunner()
+    def setUp(self):
+        self.model_a = Mock(model_name='custom/answer-a')
+        self.model_b = Mock(model_name='custom/answer-b')
+        self.classifier = Mock(return_value={'task': 'Chatbot', 'complexity': 0.2})
+        self.mapper = Mock()
+        self.task_models = {'Chatbot': 'model_b', 'Code Generation': 'model_a'}
+        self.runner = InferenceRunner(self.model_a, self.model_b, self.classifier, self.mapper,
+                                      task_models=self.task_models)
+
+    def test_conversation_text_is_required_before_routing(self):
         with self.assertRaises(TypeError):
-            runner.receive_prompt('hello')
+            self.runner.receive_prompt('hello')
         for conversation_text in (None, '', '   ', 123):
             with self.subTest(conversation_text=conversation_text), self.assertRaisesRegex(
                     ValueError, 'conversation_text must be nonempty text'):
-                runner.receive_prompt('hello', conversation_text=conversation_text, current_model='qwen')
-        route.assert_not_called()
-        model_class.assert_not_called()
+                self.runner.receive_prompt('hello', conversation_text=conversation_text,
+                                           current_model='model_a')
+        self.classifier.assert_not_called()
+        self.model_a.run.assert_not_called()
+        self.model_b.run.assert_not_called()
 
-    @patch('src.translation_layer.inference_runner.Model')
-    @patch('src.translation_layer.inference_runner.router.route')
-    def test_routing_loading_reuse_and_cache(self, route, model_class):
-        route.side_effect = ['smollm', 'qwen', 'smollm']
-        small, large = Mock(), Mock()
-        model_class.side_effect = [small, large]
-        small.run.return_value = 'answer'
-        cache = small.get_kv_cache.return_value
-        cache.tandem_model_name = MODEL_NAMES['smollm']
-        runner = InferenceRunner(mode='complexity', complexity_threshold=0.7)
-        model_class.assert_not_called()
-        self.assertEqual(runner.receive_prompt('hello', conversation_text='hello', current_model='qwen'), ('answer', cache))
-        route.assert_called_with('hello', mode='complexity', threshold=0.7, task_models=None)
-        runner.receive_prompt('code', conversation_text='code', current_model='smollm')
-        runner.receive_prompt('suffix', conversation_text='prefix suffix', current_model='smollm', kv_cache=cache, is_suffix=True)
-        self.assertEqual(model_class.call_count, 2)
-        small.run.assert_called_with('suffix', kv_cache=cache, is_suffix=True, max_new_tokens=100, prompt_mode='chat')
+    def test_supplied_models_route_reuse_and_cache(self):
+        runner = InferenceRunner(self.model_a, self.model_b, self.classifier, self.mapper,
+                                 mode='complexity', complexity_threshold=0.7)
+        self.classifier.side_effect = [{'complexity': 0.2}, {'complexity': 0.7}, {'complexity': 0.1}]
+        self.model_b.run.return_value = 'answer'
+        cache = self.model_b.get_kv_cache.return_value
+        cache.tandem_model_name = self.model_b.model_name
+        self.assertEqual(runner.receive_prompt('hello', conversation_text='hello', current_model='model_a'),
+                         ('answer', cache))
+        runner.receive_prompt('code', conversation_text='code', current_model='model_b')
+        runner.receive_prompt('suffix', conversation_text='prefix suffix', current_model='model_b',
+                              kv_cache=cache, is_suffix=True)
+        self.model_a.run.assert_called_once()
+        self.assertEqual(self.model_b.run.call_count, 2)
+        self.model_b.run.assert_called_with('suffix', kv_cache=cache, is_suffix=True,
+                                           max_new_tokens=100, prompt_mode='chat')
+        self.classifier.assert_called_with('suffix')
+        self.mapper.assert_not_called()
 
-    @patch('src.translation_layer.inference_runner.Model')
-    @patch('src.translation_layer.inference_runner.router.route')
-    def test_current_model_and_errors(self, route, model_class):
-        runner = InferenceRunner()
+    def test_task_routing_and_custom_labels(self):
+        self.classifier.return_value = {'task': 'Code Generation'}
+        self.runner.receive_prompt('code', conversation_text='code', current_model='model_b')
+        self.model_a.run.assert_called_once()
+        runner = InferenceRunner(self.model_a, self.model_b, self.classifier, self.mapper,
+                                 task_models={'custom': 'model_b'})
+        self.classifier.return_value = {'task': 'custom'}
+        runner.receive_prompt('hello', conversation_text='hello', current_model='model_a')
+        self.model_b.run.assert_called_once()
+
+    def test_classifier_failure_falls_back_to_supplied_model_a(self):
+        self.classifier.side_effect = RuntimeError('failed')
+        with self.assertLogs(level='WARNING'):
+            self.runner.receive_prompt('hello', conversation_text='hello', current_model='model_a')
+        self.model_a.run.assert_called_once()
+        self.model_b.run.assert_not_called()
+
+    def test_current_model_and_errors(self):
+        runner = InferenceRunner(self.model_a, self.model_b, self.classifier, None,
+                                 task_models=self.task_models)
         with self.assertRaises(TypeError):
             runner.receive_prompt('hello', conversation_text='hello')
         for current in ('unknown', ''):
             with self.assertRaisesRegex(ValueError, 'unknown model'):
                 runner.receive_prompt('hi', conversation_text='hi', current_model=current)
-        route.assert_not_called()
-        route.return_value = 'qwen'
-        runner.receive_prompt('hello', conversation_text='hello', current_model='qwen')
-        route.assert_called_once()
-        cache = Mock(tandem_model_name=MODEL_NAMES['smollm'])
+        self.classifier.assert_not_called()
+        self.classifier.return_value = {'task': 'Code Generation'}
+        cache = Mock(tandem_model_name=self.model_b.model_name)
         with self.assertRaisesRegex(ValueError, 'translation is not available'):
-            runner.receive_prompt('suffix', conversation_text='prefix suffix', current_model='smollm', kv_cache=cache)
+            runner.receive_prompt('suffix', conversation_text='prefix suffix', current_model='model_b', kv_cache=cache)
         with self.assertRaisesRegex(ValueError, 'provenance'):
-            runner.receive_prompt('suffix', conversation_text='prefix suffix', current_model='qwen', kv_cache=cache)
+            runner.receive_prompt('suffix', conversation_text='prefix suffix', current_model='model_a', kv_cache=cache)
         # current_model supplies provenance for an untagged external cache.
-        runner.receive_prompt('suffix', conversation_text='prefix suffix', current_model='qwen', kv_cache=object(), is_suffix=True)
-        route.return_value = 'unknown'
-        with self.assertRaisesRegex(ValueError, 'unknown model'):
-            runner.receive_prompt('hi', conversation_text='hi', current_model='qwen')
+        runner.receive_prompt('suffix', conversation_text='prefix suffix', current_model='model_a',
+                              kv_cache=object(), is_suffix=True)
+        with patch('src.routing.router.route', return_value='unknown'):
+            with self.assertRaisesRegex(ValueError, 'unknown model'):
+                runner.receive_prompt('hi', conversation_text='hi', current_model='model_a')
 
-    @patch('src.translation_layer.inference_runner.Model')
-    @patch('src.translation_layer.inference_runner.router.route')
-    def test_adapter_receives_context_and_runs_exact_target_ids(self, route, model_class):
-        for source, target in [('qwen', 'smollm'), ('smollm', 'qwen')]:
+    def test_mapper_receives_context_and_runs_exact_target_ids(self):
+        for source, target, task in [('model_a', 'model_b', 'Chatbot'),
+                                     ('model_b', 'model_a', 'Code Generation')]:
             with self.subTest(source=source):
-                route.return_value = target
-                model_class.reset_mock()
-                target_model = model_class.return_value
-                target_model.reset_mock()
-                source_cache = Mock(tandem_model_name=MODEL_NAMES[source])
+                self.model_a.reset_mock()
+                self.model_b.reset_mock()
+                self.classifier.return_value = {'task': task}
+                source_cache = Mock(tandem_model_name=self.runner.model_names[source])
                 source_cache.get_seq_length.return_value = 2
-                translated = object()
-                target_ids = [7, 8, 9]
-
-                def translate(**kwargs):
-                    model_class.assert_called_once_with(
-                        model_name=MODEL_NAMES[target], device='cuda:1',
-                        dtype='bfloat16', revision='pinned')
-                    self.assertIs(kwargs['target_model'], target_model)
-                    self.assertIs(kwargs['cache'], source_cache)
-                    self.assertEqual(kwargs['source_model'], MODEL_NAMES[source])
-                    self.assertEqual(kwargs['conversation_text'], 'prefix suffix')
-                    self.assertEqual(kwargs['cached_token_ids'], [1, 2])
-                    self.assertEqual(kwargs['prefix_boundary'], 6)
-                    self.assertEqual(kwargs['prompt_mode'], 'plain')
-                    return translated, target_ids
-
-                runner = InferenceRunner(
-                    cache_adapter=translate, prompt_mode='plain', device='cuda:1',
-                    dtype='bfloat16', model_revisions={target: 'pinned'})
-                result = runner.receive_prompt(
+                translated, target_ids = object(), [7, 8, 9]
+                self.mapper.return_value = translated, target_ids
+                self.runner.prompt_mode = 'plain'
+                target_model = self.runner._models[target]
+                result = self.runner.receive_prompt(
                     'prefix suffix', current_model=source, kv_cache=source_cache,
                     conversation_text='prefix suffix', cached_token_ids=[1, 2],
                     prefix_boundary=6, max_new_tokens=3)
+                self.mapper.assert_called_with(
+                    cache=source_cache, source_model=self.runner.model_names[source],
+                    target_model=target_model, conversation_text='prefix suffix',
+                    cached_token_ids=[1, 2], prefix_boundary=6, prompt_mode='plain')
                 target_model.run.assert_not_called()
                 target_model.run_tokens.assert_called_once_with(
                     target_ids, kv_cache=translated, max_new_tokens=3)
                 self.assertEqual(result, (target_model.run_tokens.return_value,
                                           target_model.get_kv_cache.return_value))
 
-    @patch('src.translation_layer.inference_runner.Model')
-    @patch('src.translation_layer.inference_runner.router.route', return_value='qwen')
-    def test_translation_rejects_missing_or_mismatched_context(self, route, model_class):
-        adapter = Mock()
-        runner = InferenceRunner(cache_adapter=adapter)
-        cache = Mock(tandem_model_name=MODEL_NAMES['smollm'])
+    def test_translation_rejects_missing_or_mismatched_context(self):
+        cache = Mock(tandem_model_name=self.model_a.model_name)
         cache.get_seq_length.return_value = 2
         for context in ({'conversation_text': 'abc'}, {'conversation_text': 'abc', 'prefix_boundary': 4},
-                        {'conversation_text': 'abc', 'prefix_boundary': 1,
-                         'cached_token_ids': [1]}):
+                        {'conversation_text': 'abc', 'prefix_boundary': 1, 'cached_token_ids': [1]}):
             with self.assertRaises(ValueError):
-                runner.receive_prompt('abc', current_model='smollm', kv_cache=cache, **context)
-        adapter.assert_not_called()
-        model_class.assert_not_called()
+                self.runner.receive_prompt('abc', current_model='model_a', kv_cache=cache, **context)
+        self.mapper.assert_not_called()
+        self.model_b.run_tokens.assert_not_called()
+
+    def test_invalid_dependencies_and_task_aliases(self):
+        with self.assertRaisesRegex(ValueError, 'distinct model_name'):
+            InferenceRunner(self.model_a, self.model_a, self.classifier, self.mapper)
+        with self.assertRaisesRegex(ValueError, 'nonempty model_name'):
+            InferenceRunner(Mock(model_name=''), self.model_b, self.classifier, self.mapper)
+        with self.assertRaisesRegex(TypeError, 'classifier_model must be callable'):
+            InferenceRunner(self.model_a, self.model_b, None, self.mapper)
+        with self.assertRaisesRegex(TypeError, 'kv_cache_mapper must be callable'):
+            InferenceRunner(self.model_a, self.model_b, self.classifier, object())
+        with self.assertRaisesRegex(ValueError, 'unknown model'):
+            InferenceRunner(self.model_a, self.model_b, self.classifier, self.mapper,
+                            task_models={'Chatbot': 'unknown'})
+
+    def test_task_mode_requires_explicit_policy(self):
+        with self.assertRaisesRegex(ValueError, 'task_models is required'):
+            InferenceRunner(self.model_a, self.model_b, self.classifier, self.mapper)
+        self.classifier.assert_not_called()
+
+    def test_initialization_rejects_missing_answer_model_capabilities(self):
+        for alias in ('model_a', 'model_b'):
+            for method in ('run', 'run_tokens', 'get_kv_cache'):
+                for invalid in (None, 'not callable'):
+                    with self.subTest(alias=alias, method=method, invalid=invalid):
+                        model = SimpleNamespace(model_name='custom/model', run=lambda: None,
+                                                run_tokens=lambda: None, get_kv_cache=lambda: None)
+                        if invalid is None:
+                            delattr(model, method)
+                        else:
+                            setattr(model, method, invalid)
+                        models = {'model_a': self.model_a, 'model_b': self.model_b, alias: model}
+                        with self.assertRaisesRegex(TypeError, f'{alias} must provide callable {method}'):
+                            InferenceRunner(**models, classifier_model=self.classifier,
+                                            kv_cache_mapper=self.mapper, task_models=self.task_models)
+        for model in (None, object(), SimpleNamespace(model_name=123)):
+            with self.subTest(model=model), self.assertRaisesRegex(ValueError, 'model_a.*model_name'):
+                InferenceRunner(model, self.model_b, self.classifier, self.mapper,
+                                task_models=self.task_models)
+        self.classifier.assert_not_called()
+        self.mapper.assert_not_called()
+
+    def test_initialization_rejects_invalid_routing_configuration(self):
+        for settings, error, message in [
+            ({'mode': 'invalid'}, ValueError, 'mode must be'),
+            ({'task_models': [('Chatbot', 'model_a')]}, TypeError, 'task_models must be a mapping'),
+            ({'task_models': {'': 'model_a'}}, ValueError, 'labels must be nonempty'),
+            ({'task_models': {'Chatbot': []}}, ValueError, 'unknown model'),
+            *[({'mode': 'complexity', 'complexity_threshold': value}, ValueError, 'threshold must be')
+              for value in (None, '0.5', True, float('nan'), float('inf'))],
+        ]:
+            with self.subTest(settings=settings), self.assertRaisesRegex(error, message):
+                InferenceRunner(self.model_a, self.model_b, self.classifier, self.mapper,
+                                **settings)
+        self.classifier.assert_not_called()
+        self.mapper.assert_not_called()

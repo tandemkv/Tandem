@@ -1,75 +1,61 @@
 # Prompt → model choice
 
-```python
-from src.routing.router import route
-
-route("Write a Python function", mode="task")
-route("Write a Python function", mode="complexity", threshold=0.5)
-# Both return only "qwen" or "smollm".
-```
-
-Neither target model is loaded or called. `qwen` means
-`Qwen/Qwen2.5-0.5B-Instruct`; `smollm` means
-`HuggingFaceTB/SmolLM2-360M-Instruct`. Your inference code uses the choice and
-owns the KV caches.
-
-## Toggle
-
-- **task** (default): NVIDIA's classifier predicts a task label. Code Generation,
-  Open QA, Other, and Unknown go to Qwen. Other labels (including Summarization,
-  Rewrite, Extraction, and Chatbot) go to SmolLM. Edit `TASK_MODELS` in `router.py`
-  to change the policy.
-- **complexity**: Qwen if the overall complexity score is at least `threshold`;
-  otherwise SmolLM. The default cutoff is 0.5. The threshold is ignored in task
-  mode. Both the mapping and cutoff are experimental, not measured performance
-  rankings for these target models.
-
-Both modes use the same local
-[NVIDIA Prompt Task and Complexity Classifier](https://huggingface.co/nvidia/prompt-task-and-complexity-classifier).
-It replaces the previous MiniLM/example-similarity implementation with actual
-trained task labels and complexity predictions. The classifier is loaded once
-per process, on CPU; switching modes does not load a second model.
-
-Inspect predictions independently when tuning:
+The router depends on the `Classifier` protocol in
+[`interfaces.py`](interfaces.py), not a particular model or ML framework.
+Implement `__call__(prompt: str) -> ClassificationResult`; no inheritance is
+required. Return `task` for task routing, `complexity` for complexity routing,
+or both. Optional confidence and dimension scores are available through
+`analyze` but do not affect routing.
 
 ```python
-from src.routing.router import analyze
+from src.routing.interfaces import ClassificationResult
+from src.routing.router import analyze, route
 
-print(analyze("Explain how binary search works."))
-# task, task_confidence, complexity, dimensions
+class MyClassifier:
+    def __call__(self, prompt: str) -> ClassificationResult:
+        # Replace with your classifier's prediction.
+        return {"task": "general", "complexity": 0.2}
+
+classifier = MyClassifier()
+choice = route("Explain gravity", classifier_model=classifier,
+               task_models={"general": "model_b", "technical": "model_a"})
+choice = route("Explain gravity", mode="complexity",
+               classifier_model=classifier, threshold=0.5)
+print(analyze("Explain gravity", classifier_model=classifier))
 ```
 
-Complexity uses NVIDIA's weighted sum of creativity (0.35), reasoning (0.25),
-constraints (0.15), domain knowledge (0.15), contextual knowledge (0.05), and
-few-shot count (0.05), with the published normalization and rounding. Few-shot
-count ranges up to 5, so the mathematical maximum is **1.2**, not 1.0. The score
-is not the probability that a target model will fail. Calibrate the threshold on
-representative prompts and measured performance of both target models.
+- **task** (default): requires an explicit `task_models` mapping from your
+  classifier's labels to answer-model aliases. Unmapped labels raise `KeyError`.
+- **complexity**: selects `model_a` at or above `threshold`, otherwise `model_b`.
+  Scores must be finite, with larger scores meaning more complex prompts.
+  The threshold uses your classifier's scale; there is no fixed score range.
+- Classifier inference failures log a warning and fall back to `model_a`.
+  Invalid configuration and missing prediction fields raise errors.
 
-## Run
+Aliases default to `model_a` and `model_b`; standalone callers can override
+these with the corresponding keyword arguments. Neither answer model is loaded
+or called. Classifier construction and loading belong to the caller. The core
+requires only Python's standard library; optional adapters are never imported
+by the router or inference runner.
 
-Use the existing experiment environment from the repository root:
+## Qwen/SmolLM/NVIDIA demo
+
+[`demo_setup.py`](../experiments/poc/demo_setup.py) supplies the NVIDIA classifier
+and the demo task mapping. `build_demo_runner()` additionally loads Qwen as
+`model_a` and SmolLM as `model_b`, and accepts your KV cache mapper. The task
+mapping sends Code Generation, Open QA, Other, and Unknown to Qwen; other labels
+go to SmolLM. This mapping and the default threshold of 0.5 are experimental.
+
+The routing CLI lives in the demo layer:
 
 ```sh
-src/venv/bin/python -m src.routing.router --mode task "Write a Python function"
-src/venv/bin/python -m src.routing.router --mode complexity --threshold 0.5 "Write a Python function"
+src/venv/bin/python -m src.experiments.poc.routing_exp --mode task "Write a Python function"
+src/venv/bin/python -m src.experiments.poc.routing_exp --mode complexity --threshold 0.5 "Write a Python function"
 ```
 
-For a fresh environment install `torch`, `transformers`, `huggingface-hub`, and
-`safetensors`. The first valid call downloads the classifier weights (roughly
-740 MB), tokenizer, and backbone architecture configuration. It does not download
-base DeBERTa weights separately. Later runs use the Hugging Face disk cache;
-within a process the model stays in memory. No servers, Docker, API keys, target
-model downloads, generation, or cache handling are required.
-
-The classifier is intended for English and considers only the first 512 tokenizer
-tokens. Pass the current request, not an entire long conversation. Empty prompts,
-unknown modes, and invalid complexity thresholds fail before model loading.
-
-Weights are under the NVIDIA Open Model License. `classifier.py` follows the
-architecture/scoring in the official model card, uses strict safetensors loading,
-and pins classifier revision `fea1121511eafabaf7dd6fc66863dcb04f74defb` and backbone
-configuration revision `8ccc9b6f36199bec6961081d44eb72fb3f7353f3`.
+See the [optional adapter documentation](../adapters/README.md) for dependencies,
+checkpoint revisions, scoring, and licensing. Custom classifiers do not require
+these dependencies.
 
 ## Tests
 
@@ -78,6 +64,6 @@ python3 -m unittest discover -s test -p 'test_routing.py' -v
 src/venv/bin/python -m unittest discover -s test -p 'test_classifier.py' -v
 ```
 
-Routing tests use fake predictions to check toggling, mappings, boundary scores,
-validation, and CLI behavior without downloads. Classifier scoring tests use
-synthetic logits and need the Python ML dependencies, but no weights or network.
+Routing tests use fake predictions and check that the core works with Python
+site-packages disabled. NVIDIA scoring tests use synthetic logits and need the
+optional ML dependencies, but no weights or network.
