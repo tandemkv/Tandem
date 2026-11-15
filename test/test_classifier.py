@@ -2,7 +2,7 @@
 import unittest
 
 import torch
-from src.routing.classifier import decode
+from src.adapters.nvidia_classifier import decode
 
 
 class ClassifierScoringTests(unittest.TestCase):

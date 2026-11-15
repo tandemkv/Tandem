@@ -95,6 +95,11 @@ class Model:
                 break
         self.cache = output.past_key_values
         self.cache.tandem_model_name = self.model_name
+        prefix_ids = [] if kv_cache is None else getattr(kv_cache, "tandem_token_ids", None)
+        self.cache.tandem_token_ids = (
+            None if prefix_ids is None else list(prefix_ids) + list(tokens) + generated
+        )
+        self.cache.tandem_turn_complete = generated[-1] in eos
         self.generated_tokens = generated
         return self.tokenizer.decode(generated, skip_special_tokens=True)
 

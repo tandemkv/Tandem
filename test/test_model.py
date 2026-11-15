@@ -26,6 +26,7 @@ class ModelCacheTests(unittest.TestCase):
              patch('src.models.model.AutoTokenizer.from_pretrained', return_value=tokenizer):
             self.model = Model(model_name='tiny-qwen')
 
+
     def test_handoff_matches_full_history_and_preserves_branches(self):
         model = self.model
         model.run('Hello', max_new_tokens=3)
@@ -34,11 +35,14 @@ class ModelCacheTests(unittest.TestCase):
         history = [10, 11, 12] + model.generated_tokens
         cache = model.get_kv_cache()
         before = copy.deepcopy(cache)
+        self.assertEqual(cache.tandem_token_ids, history)
+        self.assertFalse(cache.tandem_turn_complete)
         self.assertEqual(cache.get_seq_length(), len(history))
         for suffix in ([21, 22], [31, 32, 33]):
             model.run_tokens(suffix, kv_cache=cache, max_new_tokens=4)
             cached_tokens = model.generated_tokens[:]
             cached = model.get_kv_cache()
+            self.assertEqual(cached.tandem_token_ids, history + suffix + cached_tokens)
             model.run_tokens(history + suffix, max_new_tokens=4)
             self.assertEqual(cached_tokens, model.generated_tokens)
             self.assertEqual(cached.get_seq_length(), len(history) + len(suffix) + 4)
@@ -49,6 +53,7 @@ class ModelCacheTests(unittest.TestCase):
         for actual, original in zip(cache.layers, before.layers):
             self.assertTrue(torch.equal(actual.keys, original.keys))
             self.assertTrue(torch.equal(actual.values, original.values))
+
 
     def test_failed_generation_preserves_input_and_previous_result(self):
         model = self.model
@@ -73,6 +78,7 @@ class ModelCacheTests(unittest.TestCase):
             self.assertTrue(torch.equal(actual.keys, original.keys))
             self.assertTrue(torch.equal(actual.values, original.values))
 
+
     def test_eos_is_included_in_cache(self):
         model = self.model
         model.run_tokens([10, 11], max_new_tokens=1)
@@ -80,6 +86,8 @@ class ModelCacheTests(unittest.TestCase):
         model.run_tokens([10, 11], max_new_tokens=5)
         self.assertEqual(len(model.generated_tokens), 1)
         self.assertEqual(model.get_kv_cache().get_seq_length(), 3)
+        self.assertTrue(model.get_kv_cache().tandem_turn_complete)
+
 
     def test_explicit_suffix_and_constructor_cache(self):
         model = self.model
@@ -98,6 +106,7 @@ class ModelCacheTests(unittest.TestCase):
         model.run('independent', max_new_tokens=1)
         self.assertEqual(model.get_kv_cache().get_seq_length(), 4)
 
+
     def test_plain_text_uses_verbatim_tokens(self):
         model = self.model
         model.tokenizer.encode.return_value = [10, 11, 12]
@@ -111,37 +120,70 @@ class ModelCacheTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'prompt_mode'):
             model.run('hi', prompt_mode='invalid')
 
+
+    def test_conversation_manager_matches_full_token_replay(self):
+        from src.translation_layer.conversation_manager import ConversationManager
+        from src.translation_layer.inference_runner import InferenceRunner
+
+        model = self.model
+        model.tokenizer.encode.return_value = [21, 22]
+        runner = InferenceRunner(model, Mock(model_name='other-model'),
+                                 Mock(return_value={'task': 'Code Generation'}), None,
+                                 task_models={'Code Generation': 'model_a'})
+        conversation = ConversationManager(runner)
+        with patch('src.translation_layer.inference_runner.router.route', return_value='model_a'):
+            conversation.send('Explain gravity.', max_new_tokens=2)
+            prefix = conversation.cached_token_ids[:]
+            original = conversation.kv_cache
+            conversation.send('How does that affect time?', max_new_tokens=3)
+        generated = model.generated_tokens[:]
+        cached = conversation.kv_cache
+        model.run_tokens(prefix + [21, 22], max_new_tokens=3)
+        self.assertEqual(generated, model.generated_tokens)
+        self.assertEqual(conversation.cached_token_ids, prefix + [21, 22] + generated)
+        self.assertEqual(original.get_seq_length(), len(prefix))
+        for actual, expected in zip(cached.layers, model.cache.layers):
+            torch.testing.assert_close(actual.keys, expected.keys, atol=1e-5, rtol=1e-5)
+            torch.testing.assert_close(actual.values, expected.values, atol=1e-5, rtol=1e-5)
+
+
     def test_forced_switch_matches_native_target_with_identical_tokens(self):
-        from src.translation_layer.inference_runner import InferenceRunner, MODEL_NAMES
+        from src.translation_layer.inference_runner import InferenceRunner
 
         # A native-prefill adapter isolates the runner contract from learned
         # translation quality. Exercise both aliases with an offline tiny model.
-        for source, target in [('qwen', 'smollm'), ('smollm', 'qwen')]:
+        model_names = {'model_a': 'tiny-a', 'model_b': 'tiny-b'}
+        for source, target in [('model_a', 'model_b'), ('model_b', 'model_a')]:
             with self.subTest(source=source):
                 model = self.model
-                model.model_name = MODEL_NAMES[source]
+                model.model_name = model_names[source]
                 model.run_tokens([10, 11], max_new_tokens=1)
                 source_ids = [10, 11] + model.generated_tokens
                 source_cache = model.get_kv_cache()
                 original = copy.deepcopy(source_cache)
-                model.model_name = MODEL_NAMES[target]
+                model.model_name = model_names[target]
                 target_prefix, target_suffix = [30, 31, 32, 33], [40, 41]
 
                 def native_adapter(**kwargs):
                     self.assertIs(kwargs['target_model'], model)
                     with torch.no_grad():
                         cache = model._forward(target_prefix, None).past_key_values
-                    cache.tandem_model_name = MODEL_NAMES[target]
+                    cache.tandem_model_name = model_names[target]
+                    cache.tandem_token_ids = target_prefix[:]
                     return cache, target_suffix
 
-                runner = InferenceRunner(cache_adapter=native_adapter, prompt_mode='plain')
-                runner._models[target] = model
+                models = {source: Mock(model_name=model_names[source]), target: model}
+                runner = InferenceRunner(models['model_a'], models['model_b'], Mock(),
+                                         native_adapter, prompt_mode='plain',
+                                         task_models={'custom': target})
                 with patch('src.translation_layer.inference_runner.router.route', return_value=target):
                     _, switched_cache = runner.receive_prompt(
                         'prefix suffix', current_model=source, kv_cache=source_cache,
                         conversation_text='prefix suffix', prefix_boundary=6,
                         cached_token_ids=source_ids, max_new_tokens=3)
                 switched_ids = model.generated_tokens[:]
+                self.assertEqual(switched_cache.tandem_token_ids,
+                                 target_prefix + target_suffix + switched_ids)
                 model.run_tokens(target_prefix + target_suffix, max_new_tokens=3)
                 self.assertEqual(switched_ids, model.generated_tokens)
                 for actual, expected in zip(switched_cache.layers, model.cache.layers):
@@ -150,6 +192,7 @@ class ModelCacheTests(unittest.TestCase):
                 for actual, expected in zip(source_cache.layers, original.layers):
                     self.assertTrue(torch.equal(actual.keys, expected.keys))
                     self.assertTrue(torch.equal(actual.values, expected.values))
+
 
     def test_loading_configuration_applies_to_model_and_tokenizer(self):
         with patch('src.models.model.AutoModelForCausalLM.from_pretrained') as load, \
@@ -160,6 +203,7 @@ class ModelCacheTests(unittest.TestCase):
                                      revision='commit')
         load.return_value.to.assert_called_once_with('cuda:1')
         tokenizer.assert_called_once_with('checkpoint', revision='commit')
+
 
     def test_bad_cache_and_inputs(self):
         model = self.model
@@ -194,10 +238,14 @@ class RealModelTests(unittest.TestCase):
         from src.routing import router
         from src.translation_layer.inference_runner import InferenceRunner
 
-        runner = InferenceRunner()
-        for task, choice in [('Chatbot', 'smollm'), ('Code Generation', 'qwen')]:
-            with patch.object(router, 'analyze', return_value={'task': task}):
-                answer, cache = runner.receive_prompt('Say hello.', conversation_text='Say hello.', current_model=choice, max_new_tokens=16)
+        classifier = Mock()
+        runner = InferenceRunner(
+            Model(model_name='Qwen/Qwen2.5-0.5B-Instruct'),
+            Model(model_name='HuggingFaceTB/SmolLM2-360M-Instruct'), classifier, None,
+            task_models={'Chatbot': 'model_b', 'Code Generation': 'model_a'})
+        for task, choice in [('Chatbot', 'model_b'), ('Code Generation', 'model_a')]:
+            classifier.return_value = {'task': task}
+            answer, cache = runner.receive_prompt('Say hello.', conversation_text='Say hello.', current_model=choice, max_new_tokens=16)
             self.assertTrue(answer.strip())
             loaded = runner._models[choice]
             length = cache.get_seq_length()
