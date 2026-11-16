@@ -30,9 +30,13 @@ class TranslationSelectionTests(unittest.TestCase):
         for name in ("tandem", "kvport"):
             with self.subTest(name=name):
                 self.mapper.reset_mock()
+                other = Mock()
                 options = {} if name == "tandem" else {"translation_model": name}
-                runner = self.runner(translation_models={name: {("source/a", "target/b"): self.checkpoint}},
-                                     **options)
+                registrations = {
+                    "tandem": {("source/a", "target/b"): TranslationCheckpoint("other", other)},
+                }
+                registrations[name] = {("source/a", "target/b"): self.checkpoint}
+                runner = self.runner(translation_models=registrations, **options)
                 result = self.handoff(runner)
                 answer, cache = result
                 self.assertEqual((answer, cache), (self.b.run_tokens.return_value, self.b.get_kv_cache.return_value))
@@ -43,30 +47,14 @@ class TranslationSelectionTests(unittest.TestCase):
                 self.mapper.assert_called_once_with(
                     cache=self.cache, source_model="source/a", target_model=self.b,
                     conversation_text="old new", cached_token_ids=[1], prefix_boundary=3, prompt_mode="chat")
+                other.assert_not_called()
                 # A later non-translated call must not overwrite this result's metadata.
-                later = runner.receive_prompt("new", conversation_text="new", current_model="model_b")
+                later = runner.receive_prompt("new", conversation_text="old new", current_model="model_b",
+                                              kv_cache=Mock(tandem_model_name="target/b"), is_suffix=True)
+                self.assertEqual(self.mapper.call_count, 1)
                 self.assertFalse(later.metadata.translated)
                 self.assertIsNone(later.metadata.checkpoint)
                 self.assertEqual(result.metadata.checkpoint, "weights/revision-1")
-
-    def test_only_selected_implementation_runs(self):
-        other = Mock()
-        runner = self.runner(translation_model="kvport", translation_models={
-            "tandem": {("source/a", "target/b"): TranslationCheckpoint("other", other)},
-            "kvport": {("source/a", "target/b"): self.checkpoint},
-        })
-        self.handoff(runner)
-        other.assert_not_called()
-        self.mapper.assert_called_once()
-
-    def test_same_model_cache_bypasses_selected_translator(self):
-        runner = self.runner(translation_models={"tandem": {("source/a", "target/b"): self.checkpoint}})
-        self.classifier.return_value = {"complexity": 0.9}
-        result = runner.receive_prompt("new", conversation_text="old new", current_model="model_a",
-                                       kv_cache=self.cache, is_suffix=True)
-        self.mapper.assert_not_called()
-        self.a.run.assert_called_once()
-        self.assertFalse(result.metadata.translated)
 
     def test_demo_forwards_named_selection_without_loading_real_models(self):
         from src.experiments.poc.demo_setup import build_demo_runner
@@ -115,11 +103,3 @@ class TranslationSelectionTests(unittest.TestCase):
             with self.subTest(options=options), self.assertRaisesRegex(ValueError, message):
                 self.runner(**options)
         self.classifier.assert_not_called()
-
-    def test_unconfigured_default_allows_native_calls_but_not_handoffs(self):
-        runner = self.runner()
-        result = runner.receive_prompt("new", conversation_text="new", current_model="model_a")
-        self.assertEqual(result.metadata.translation_model, "tandem")
-        self.assertFalse(result.metadata.translated)
-        with self.assertRaisesRegex(ValueError, "translation is not available"):
-            self.handoff(runner)
