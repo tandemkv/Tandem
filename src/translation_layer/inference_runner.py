@@ -14,8 +14,8 @@ class InferenceRunner:
 
     Answer models implement AnswerModel. classifier_model(prompt) returns
     task/complexity predictions according to the Classifier protocol.
-    kv_cache_mapper follows the keyword contract documented in _translate_cache;
-    pass None to disable cross-model cache reuse. Loading belongs to the caller.
+    Supply named checkpoints or a legacy kv_cache_mapper for cache handoffs.
+    Loading belongs to the caller.
     """
 
     def __init__(
@@ -169,7 +169,7 @@ class InferenceRunner:
 
 
     def _translate_cache(self, cache, source_model, target_model, *, conversation_text,
-                         cached_token_ids, prefix_boundary, mapper=None):
+                         cached_token_ids, prefix_boundary, mapper):
         """Mapper returns (target cache, exact uncached target IDs).
 
         target_model is the supplied AnswerModel. The mapper must support this
@@ -178,13 +178,6 @@ class InferenceRunner:
         the input cache. conversation_text includes the uncached continuation; the
         adapter formats chat mode exactly once when preparing target tokens.
         """
-        if mapper is None:
-            mapper = self.kv_cache_mapper
-        if mapper is None:
-            raise ValueError(
-                f"cache from {source_model} is incompatible with {target_model.model_name}; "
-                "cross-model cache translation is not available: no kv_cache_mapper configured"
-            )
         return mapper(
             cache=cache, source_model=source_model, target_model=target_model,
             conversation_text=conversation_text, cached_token_ids=cached_token_ids,

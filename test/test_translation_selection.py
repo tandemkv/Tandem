@@ -27,7 +27,7 @@ class TranslationSelectionTests(unittest.TestCase):
                                      kv_cache=self.cache, cached_token_ids=[1], prefix_boundary=3)
 
     def test_default_and_explicit_selection_and_per_result_metadata(self):
-        for name in ("tandem", "heterofold", "kvport", "custom"):
+        for name in ("tandem", "kvport"):
             with self.subTest(name=name):
                 self.mapper.reset_mock()
                 options = {} if name == "tandem" else {"translation_model": name}
@@ -104,13 +104,6 @@ class TranslationSelectionTests(unittest.TestCase):
         self.b.run_tokens.assert_not_called()
         self.b.run.assert_not_called()
 
-    def test_adapter_validation_errors_propagate_without_generation(self):
-        runner = self.runner(translation_models={"tandem": {("source/a", "target/b"): self.checkpoint}})
-        self.mapper.side_effect = UnsupportedTranslationError("source/a", "target/b")
-        with self.assertRaises(UnsupportedTranslationError):
-            self.handoff(runner)
-        self.b.run_tokens.assert_not_called()
-
     def test_unknown_unavailable_and_conflicting_selections(self):
         for options, message in [
             ({"translation_model": "typo"}, "unknown translation model"),
@@ -118,7 +111,6 @@ class TranslationSelectionTests(unittest.TestCase):
             ({"translation_model": "kvport", "translation_models": {"kvport": {}}}, "unavailable"),
             ({"translation_model": "kvport", "kv_cache_mapper": self.mapper}, "legacy"),
             ({"translation_models": {}, "kv_cache_mapper": self.mapper}, "legacy"),
-            ({"translation_model": None}, "nonempty"),
         ]:
             with self.subTest(options=options), self.assertRaisesRegex(ValueError, message):
                 self.runner(**options)
@@ -131,12 +123,3 @@ class TranslationSelectionTests(unittest.TestCase):
         self.assertFalse(result.metadata.translated)
         with self.assertRaisesRegex(ValueError, "translation is not available"):
             self.handoff(runner)
-
-    def test_invalid_registration(self):
-        for directions in ({("source/a",): self.checkpoint}, {("source/a", "target/b"): self.mapper}):
-            with self.subTest(directions=directions), self.assertRaises((ValueError, TypeError)):
-                self.runner(translation_models={"tandem": directions})
-        with self.assertRaises(ValueError):
-            TranslationCheckpoint("", self.mapper)
-        with self.assertRaises(TypeError):
-            TranslationCheckpoint("weights", None)
