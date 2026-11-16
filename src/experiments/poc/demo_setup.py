@@ -1,9 +1,11 @@
 """Optional Qwen/SmolLM/NVIDIA wiring for the local proof of concept."""
 from typing import Literal
+from collections.abc import Mapping
 
 from src.routing.interfaces import Classifier
 from src.translation_layer.inference_runner import InferenceRunner
 from src.translation_layer.interfaces import KVCacheMapper
+from src.translation_layer.selection import TranslationCheckpoint
 
 # Experimental policy; calibrate against measured target-model performance.
 TASK_MODELS = {
@@ -29,6 +31,8 @@ def build_demo_classifier() -> Classifier:
 
 
 def build_demo_runner(*, kv_cache_mapper: KVCacheMapper | None = None,
+                      translation_model: str = "tandem",
+                      translation_models: Mapping[str, Mapping[tuple[str, str], TranslationCheckpoint]] | None = None,
                       mode: Literal["task", "complexity"] = "task",
                       complexity_threshold: float = 0.5) -> InferenceRunner:
     from src.models.model import Model
@@ -38,6 +42,8 @@ def build_demo_runner(*, kv_cache_mapper: KVCacheMapper | None = None,
         model_b=Model(model_name="HuggingFaceTB/SmolLM2-360M-Instruct"),
         classifier_model=build_demo_classifier(),
         kv_cache_mapper=kv_cache_mapper,
+        translation_model=translation_model,
+        translation_models=translation_models,
         task_models=TASK_MODELS,
         mode=mode,
         complexity_threshold=complexity_threshold,

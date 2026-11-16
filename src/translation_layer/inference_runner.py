@@ -5,7 +5,8 @@ from typing import Literal
 from src.models.interfaces import AnswerModel
 from src.routing import router
 from src.routing.interfaces import Classifier
-from src.translation_layer.interfaces import KVCacheMapper
+from src.translation_layer.interfaces import KVCacheMapper, UnsupportedTranslationError
+from src.translation_layer.selection import InferenceResult, TranslationCheckpoint, TranslationMetadata
 
 
 class InferenceRunner:
@@ -22,8 +23,10 @@ class InferenceRunner:
         model_a: AnswerModel,
         model_b: AnswerModel,
         classifier_model: Classifier,
-        kv_cache_mapper: KVCacheMapper | None,
+        kv_cache_mapper: KVCacheMapper | None = None,
         *,
+        translation_model: str = "tandem",
+        translation_models: Mapping[str, Mapping[tuple[str, str], TranslationCheckpoint]] | None = None,
         task_models: Mapping[str, str] | None = None,
         mode: Literal["task", "complexity"] = "task",
         complexity_threshold: float = 0.5,
@@ -48,6 +51,30 @@ class InferenceRunner:
             raise TypeError("classifier_model must be callable")
         if kv_cache_mapper is not None and not callable(kv_cache_mapper):
             raise TypeError("kv_cache_mapper must be callable or None")
+        if not isinstance(translation_model, str) or not translation_model.strip():
+            raise ValueError("translation_model must be a nonempty name")
+        if translation_models is not None and not isinstance(translation_models, Mapping):
+            raise TypeError("translation_models must be a mapping")
+        if kv_cache_mapper is not None and (translation_models is not None or translation_model != "tandem"):
+            raise ValueError("legacy kv_cache_mapper is only for tandem; use translation_models for named selection")
+        registrations = {}
+        for name, directions in (translation_models or {}).items():
+            if not isinstance(name, str) or not name.strip() or not isinstance(directions, Mapping):
+                raise ValueError("translation_models must map nonempty names to direction mappings")
+            registrations[name] = dict(directions)
+            for pair, checkpoint in directions.items():
+                if (not isinstance(pair, tuple) or len(pair) != 2
+                        or any(not isinstance(part, str) or not part.strip() for part in pair)):
+                    raise ValueError("translation directions must be (source_model, target_model) names")
+                if not isinstance(checkpoint, TranslationCheckpoint):
+                    raise TypeError("each direction must supply a TranslationCheckpoint")
+        known = {"tandem", "heterofold", "kvport"} | registrations.keys()
+        if translation_model not in known:
+            raise ValueError(f"unknown translation model {translation_model!r}; choose from {', '.join(sorted(known))}")
+        if translation_model != "tandem" and not registrations.get(translation_model):
+            raise ValueError(f"translation model {translation_model!r} is unavailable: no checkpoints registered")
+        self.translation_model = translation_model
+        self._translation_checkpoints = registrations.get(translation_model, {})
         self.classifier_model = classifier_model
         self.kv_cache_mapper = kv_cache_mapper
         router.validate_configuration(mode=mode, threshold=complexity_threshold,
@@ -65,7 +92,7 @@ class InferenceRunner:
     def receive_prompt(self, prompt: str, *, conversation_text: str, current_model: str, kv_cache=None,
                        is_suffix=False, max_new_tokens=100,
                        cached_token_ids=None, prefix_boundary=None,
-                       uncached_suffix: str | None = None) -> tuple[str, object]:
+                       uncached_suffix: str | None = None) -> InferenceResult:
         """Return (answer, cache). No conversation state is reused implicitly.
 
         current_model identifies the session's current model and supplied cache's
@@ -100,7 +127,21 @@ class InferenceRunner:
             raise ValueError("current_model disagrees with cache provenance")
         switching = choice != current_model
         translating = switching and kv_cache is not None
-        if translating and self.kv_cache_mapper is not None:
+        mapper = self.kv_cache_mapper
+        checkpoint_id = None
+        if translating:
+            if self._translation_checkpoints:
+                pair = (self.model_names[current_model], self.model_names[choice])
+                checkpoint = self._translation_checkpoints.get(pair)
+                if checkpoint is None:
+                    raise UnsupportedTranslationError(*pair)
+                mapper = checkpoint.mapper
+                checkpoint_id = checkpoint.checkpoint
+            elif mapper is None:
+                raise ValueError(
+                    f"translation model {self.translation_model!r}: translation is not available; "
+                    "no checkpoints or kv_cache_mapper configured"
+                )
             if (type(prefix_boundary) is not int
                     or not 0 <= prefix_boundary <= len(conversation_text)):
                 raise ValueError("translation requires conversation_text and a character prefix_boundary")
@@ -112,6 +153,7 @@ class InferenceRunner:
             translated_cache, target_tokens = self._translate_cache(
                 kv_cache, self.model_names[current_model], model, conversation_text=conversation_text,
                 cached_token_ids=cached_token_ids, prefix_boundary=prefix_boundary,
+                mapper=mapper,
             )
             answer = model.run_tokens(target_tokens, kv_cache=translated_cache,
                                       max_new_tokens=max_new_tokens)
@@ -119,11 +161,15 @@ class InferenceRunner:
             answer = model.run(prompt if uncached_suffix is None else uncached_suffix,
                                kv_cache=kv_cache, is_suffix=is_suffix,
                                max_new_tokens=max_new_tokens, prompt_mode=self.prompt_mode)
-        return answer, model.get_kv_cache()
+        return InferenceResult(answer, model.get_kv_cache(), metadata=TranslationMetadata(
+            translation_model=self.translation_model, checkpoint=checkpoint_id,
+            source_model=self.model_names[current_model], target_model=model.model_name,
+            translated=translating,
+        ))
 
 
     def _translate_cache(self, cache, source_model, target_model, *, conversation_text,
-                         cached_token_ids, prefix_boundary):
+                         cached_token_ids, prefix_boundary, mapper=None):
         """Mapper returns (target cache, exact uncached target IDs).
 
         target_model is the supplied AnswerModel. The mapper must support this
@@ -132,12 +178,14 @@ class InferenceRunner:
         the input cache. conversation_text includes the uncached continuation; the
         adapter formats chat mode exactly once when preparing target tokens.
         """
-        if self.kv_cache_mapper is None:
+        if mapper is None:
+            mapper = self.kv_cache_mapper
+        if mapper is None:
             raise ValueError(
                 f"cache from {source_model} is incompatible with {target_model.model_name}; "
                 "cross-model cache translation is not available: no kv_cache_mapper configured"
             )
-        return self.kv_cache_mapper(
+        return mapper(
             cache=cache, source_model=source_model, target_model=target_model,
             conversation_text=conversation_text, cached_token_ids=cached_token_ids,
             prefix_boundary=prefix_boundary, prompt_mode=self.prompt_mode,

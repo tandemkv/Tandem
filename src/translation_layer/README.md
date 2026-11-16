@@ -1,5 +1,60 @@
 # Local inference runner
 
+## Selecting a translation model
+
+`InferenceRunner` and `build_demo_runner` accept `translation_model="tandem"`
+by default. This choice is independent of the router's answer-model choice.
+`heterofold` and `kvport` are recognized names, but no learned implementations
+or checkpoints are bundled here. Supply loaded adapters using the existing
+`KVCacheMapper` contract; custom names may also be registered:
+
+```python
+from dataclasses import asdict
+from src.translation_layer.inference_runner import InferenceRunner
+from src.translation_layer.selection import TranslationCheckpoint
+
+# kvport_adapter is a caller-supplied implementation, not a bundled import.
+runner = InferenceRunner(
+    model_a=answer_model_a, model_b=answer_model_b,
+    classifier_model=classifier, mode="complexity",
+    translation_model="kvport",
+    translation_models={
+        "kvport": {
+            (answer_model_a.model_name, answer_model_b.model_name):
+                TranslationCheckpoint("kvport-checkpoint@revision", kvport_adapter),
+        },
+    },
+)
+result = runner.receive_prompt(
+    "new question", conversation_text=full_text, current_model="model_a",
+    kv_cache=source_cache, cached_token_ids=source_ids,
+    prefix_boundary=len(prefix_text),
+)
+answer, cache = result  # Existing two-value unpacking is unchanged.
+evaluation_record = asdict(result.metadata)
+```
+
+Register exact source/target model identities from the checkpoint manifest;
+reverse translation requires a separate registration and appropriate checkpoint.
+The runner checks that the selected method has a checkpoint for the routed
+direction before invoking it. The adapter remains responsible for validating
+the actual checkpoint contents, model/tokenizer revisions, prompt format and
+layout as specified in #73. Registration does not certify a checkpoint's quality.
+Unknown names and unavailable alternative implementations fail at initialization;
+unsupported directions fail at handoff without fallback or target generation.
+
+Each result carries `metadata` with `translation_model`, `checkpoint`,
+`source_model`, `target_model`, and `translated`. Persist `asdict(result.metadata)`
+with evaluation results. Native calls have `translated=False` and no checkpoint.
+Metadata belongs to each result, not mutable runner-wide last-call state.
+
+For backwards compatibility, `kv_cache_mapper=mapper` still supplies a legacy
+Tandem mapper. Its checkpoint is unknown (`None`); use named registrations for
+reproducible checkpoint reporting. Do not combine legacy injection with a
+registry or an alternative selection. With no mapper/registrations, the default
+Tandem runner still permits native calls but explicitly rejects cache handoffs.
+No translation method silently substitutes another implementation.
+
 For stateful conversations, use `ConversationManager`:
 
 ```python
@@ -13,8 +68,8 @@ answer = conversation.send("Explain gravity.")
 answer = conversation.send("How does that affect time?", max_new_tokens=100)
 ```
 
-The runner requires four supplied dependencies: two answer models, a classifier,
-and a KV cache mapper (or explicit `None` to disable translation). The demo is
+The runner requires two answer models and a classifier. For translation, supply
+named checkpoint registrations or a legacy KV cache mapper. The demo is
 optional; for your own implementations, construct the runner directly:
 
 ```python
