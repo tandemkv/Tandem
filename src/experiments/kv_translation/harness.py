@@ -49,7 +49,7 @@ def test_rows():
 class Harness:
     """Both frozen models, their tokenizers, and the pinned mapper weights on one device."""
 
-    def __init__(self, device='cuda', dtype=torch.bfloat16):
+    def __init__(self, device='cuda', dtype=torch.float32):
         if device == 'cuda' and not torch.cuda.is_available():
             raise ValueError('CUDA is unavailable')
         self.device, self.dtype = device, dtype

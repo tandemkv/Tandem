@@ -90,7 +90,7 @@ if __name__ == '__main__':
     command.add_argument('experiment')
     command.add_argument('--count', type=int, default=120)
     command.add_argument('--device', choices=('cpu', 'cuda'), default='cuda')
-    command.add_argument('--dtype', choices=('bfloat16', 'float32'), default='bfloat16')
+    command.add_argument('--dtype', choices=('float32', 'bfloat16'), default='float32')
     command.add_argument('--out', type=Path, required=True, help='Parent directory for the run, outside the repo')
     command = commands.add_parser('judge')
     command.add_argument('directory', type=Path)

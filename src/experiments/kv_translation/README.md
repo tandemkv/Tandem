@@ -13,7 +13,7 @@ uv run --locked --script run.py run context_only --out ~/tandem-runs
 uv run --locked --script run.py judge ~/tandem-runs/context_only-<time>
 ~~~
 
-Runs default to 120 cases on CUDA in bfloat16. Use `--device cpu --count 1 --dtype float32` for a smoke test; in float32 it reproduces the archived answers. Each run writes `config.json` (commit, versions, pins), `rows.jsonl`, and `summary.json`. Every case first checks that native split-cache replay matches native full prefill.
+Runs default to 120 cases on CUDA in float32, which reproduces the archived answers. Use `--device cpu --count 1` for a smoke test. In bfloat16, native split-cache replay can diverge from full prefill, so use it only for timing. Each run writes `config.json` (commit, versions, pins), `rows.jsonl`, and `summary.json`. Every case first checks that native split-cache replay matches native full prefill.
 
 ## Layout
 
