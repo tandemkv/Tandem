@@ -75,10 +75,13 @@ def read_rows(directory):
 
 
 def judge(directory, device):
-    from judge import JUDGE, Judge, annotate
-    rows = annotate(read_rows(directory), Judge(device))
+    from judge import JUDGE, Judge, annotate, validate
+    model, rows = Judge(device), read_rows(directory)
+    validation = validate(rows, model)  # Accuracy on pairs whose verdict is known by construction.
+    rows = annotate(rows, model)
     (directory / 'rows.jsonl').write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in rows))
-    write_json(directory / 'summary.json', summarize(rows))
+    write_json(directory / 'summary.json', summarize(rows) | {'judge_validation': validation})
+    print(json.dumps(validation, indent=2))
     config = json.loads((directory / 'config.json').read_text())
     write_json(directory / 'config.json', config | {'judge': JUDGE, 'judge_commit': git_commit()})
 

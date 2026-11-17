@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src/experiments/kv_translation'))
-from judge import annotate
+from judge import annotate, validate, validation_pairs
 from mapper import align, translate
 from metrics import compare, entities, summarize
 from semantic import score_answers
@@ -62,6 +62,17 @@ class KVTranslationTests(unittest.TestCase):
         self.assertTrue(rows[0]['conditions']['ridge']['metrics']['agree'])
         rows[0]['gold'] = None
         self.assertEqual(summarize(rows)['ridge']['agree']['mean'], 1.0)
+
+    def test_validation_pairs_swap_entities_and_trim_length(self):
+        rows = [{'question': 'Who?', 'native': {'answer': 'He thinks Denise Levertov. She was a poet.'}},
+                {'question': 'Where?', 'native': {'answer': 'Belfast, Northern Ireland.'}}]
+        pairs = validation_pairs(rows)
+        self.assertIn(('Who?', rows[0]['native']['answer'], 'He thinks Denise Levertov', True), pairs)
+        self.assertIn(('Who?', rows[0]['native']['answer'],
+                       'He thinks Belfast. She was a poet.', False), pairs)
+        self.assertEqual(validate(rows, lambda q, a, b: a == b or b in a),
+                         {'same_accuracy': 1.0, 'same_pairs': 2, 'different_accuracy': 1.0,
+                          'different_pairs': 2})
 
 
 if __name__ == '__main__':

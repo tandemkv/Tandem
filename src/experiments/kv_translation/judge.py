@@ -2,6 +2,8 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from metrics import ARTICLES, ENTITY, OPENERS, first_sentence
+
 JUDGE = ('Qwen/Qwen2.5-32B-Instruct', '5ede1c97bbab6ce5cda5812749b4c0bdf79b18dd')
 PROMPT = """Question: {question}
 
@@ -41,3 +43,35 @@ def annotate(rows, judge):
             metrics['judge'] = judge(row['question'], row['native']['answer'], result['answer'])
             metrics['agree'] = metrics['judge'] and metrics['entities']
     return rows
+
+
+def first_entity(text):
+    for match in ENTITY.finditer(first_sentence(text)):
+        if not set(match.group().lower().split()) <= ARTICLES | OPENERS:
+            return match.group()
+    return None
+
+
+def validation_pairs(rows):
+    """Pairs with known verdicts built from native answers: (question, a, b, expected_same).
+
+    SAME: the full answer versus its own first sentence. DIFFERENT: the answer with its first
+    entity replaced by another case's first entity.
+    """
+    pairs = []
+    for row, other in zip(rows, rows[1:] + rows[:1]):
+        answer = row['native']['answer']
+        pairs.append((row['question'], answer, first_sentence(answer), True))
+        mine, theirs = first_entity(answer), first_entity(other['native']['answer'])
+        if mine and theirs and mine.lower() != theirs.lower():
+            pairs.append((row['question'], answer, answer.replace(mine, theirs, 1), False))
+    return pairs
+
+
+def validate(rows, judge):
+    """Judge accuracy on pairs with known verdicts, split by expected verdict."""
+    hits = {True: [], False: []}
+    for question, a, b, same in validation_pairs(rows):
+        hits[same].append(judge(question, a, b) == same)
+    return {'same_accuracy': sum(hits[True]) / len(hits[True]), 'same_pairs': len(hits[True]),
+            'different_accuracy': sum(hits[False]) / len(hits[False]), 'different_pairs': len(hits[False])}
