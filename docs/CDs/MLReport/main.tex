@@ -22,8 +22,8 @@
 
 \section{Introduction}
 
-Switching language models mid-conversation usually makes the receiver
-process the entire history again. Tandem translates the source
+Switching language models mid-conversation usually requires the
+receiver to prefill the history. Tandem translates the source
 model's attention key--value (KV) cache to skip that step. Frozen
 SmolLM2-360M-Instruct and Qwen2.5-0.5B-Instruct let us test different
 tokenizers and cache layouts on one GPU. We measure answer quality and
