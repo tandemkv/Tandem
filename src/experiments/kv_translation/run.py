@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12,<3.13"
-# dependencies = ["torch==2.9.1", "transformers==4.57.1", "safetensors==0.6.2", "huggingface-hub==0.36.0"]
+# dependencies = ["torch==2.9.1", "transformers==4.57.1", "accelerate==1.9.0", "safetensors==0.6.2", "huggingface-hub==0.36.0"]
 # ///
 """Run an experiment, judge its answers, or rescore archived answers with BEM.
 
