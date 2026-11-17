@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from metrics import ARTICLES, ENTITY, OPENERS, first_sentence
 
-JUDGE = ('Qwen/Qwen2.5-7B-Instruct', 'a09a35458c702b33eeacc393d103063234e8bc28')
+JUDGE = ('Qwen/Qwen2.5-32B-Instruct', '5ede1c97bbab6ce5cda5812749b4c0bdf79b18dd')
 PROMPT = """Question: {question}
 
 Answer A: {native}
@@ -18,10 +18,13 @@ Reply with exactly SAME or DIFFERENT."""
 
 class Judge:
     def __init__(self, device='cuda'):
+        # The 32B judge needs about 65 GB in bfloat16, so it is split across the visible GPUs.
+        # Set CUDA_VISIBLE_DEVICES to the cards with enough free memory.
         name, revision = JUDGE
         self.tokenizer = AutoTokenizer.from_pretrained(name, revision=revision)
         self.model = AutoModelForCausalLM.from_pretrained(
-            name, revision=revision, dtype=torch.bfloat16, attn_implementation='sdpa').to(device).eval()
+            name, revision=revision, dtype=torch.bfloat16, attn_implementation='sdpa',
+            device_map='auto' if device == 'cuda' else None).eval()
         self.same, self.different = (self.tokenizer.encode(w, add_special_tokens=False)[0]
                                      for w in ('SAME', 'DIFFERENT'))
 
