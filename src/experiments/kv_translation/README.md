@@ -4,15 +4,36 @@ Evaluate a frozen SmolLM2-360M → Qwen2.5-0.5B translator. SmolLM prefills the 
 
 ## Run
 
-Use an account with read access to the private Tandem dataset. The replay pins both base models, the test split, normalization, and the plain and distilled ridge weights.
+Use an account with read access to the private Tandem dataset. Runs pin both base models, the test split, normalization, and the plain and distilled ridge weights.
 
 ~~~sh
 uvx hf auth login
-uv run --locked --script src/experiments/kv_translation/evaluate.py replay --output answers.json
-uv run --locked --script src/experiments/kv_translation/evaluate.py score answers.json --method distilled
+cd src/experiments/kv_translation
+uv run --locked --script run.py run context_only --out ~/tandem-runs
+uv run --locked --script run.py judge ~/tandem-runs/context_only-<time>
 ~~~
 
-Replay defaults to 120 prompts on CUDA. Use `--device cpu --count 1` for a smoke test. The scorer accepts JSON or JSONL, including the [archived diagnostic answers](https://huggingface.co/datasets/tandemkv/paired-kv-qwen-smollm/tree/49ce7e032245e39fedad8d54059f8520735a875d/experiments/context-diagnostic-20261113). BEM measures bidirectional agreement with native Qwen and scores each answer against gold. It can miss factual differences, so agreement and correctness are reported separately.
+Runs default to 120 cases on CUDA in bfloat16. Use `--device cpu --count 1 --dtype float32` for a smoke test; in float32 it reproduces the archived answers. Each run writes `config.json` (commit, versions, pins), `rows.jsonl`, and `summary.json`. Every case first checks that native split-cache replay matches native full prefill.
+
+## Layout
+
+| File | Role |
+| --- | --- |
+| `harness.py` | Pinned models and data; Qwen forward, greedy generation, teacher-forced loss, replay check |
+| `mapper.py` | Token alignment, K/V capture, the affine map, and cache construction |
+| `data.py` | `Case` and the pinned HotpotQA test cases |
+| `conditions.py` | Ways to build the prefix cache: question only, translated, and controls |
+| `metrics.py` | Consistency with native Qwen, optional gold F1, and bootstrap summaries |
+| `judge.py` | Qwen2.5-32B judge for semantic agreement with native Qwen |
+| `experiments/` | One file per experiment: its cases and conditions |
+
+To add an experiment, add `experiments/<name>.py` with `cases()` and `CONDITIONS`. To add a condition, add a function to `conditions.py`.
+
+## Metrics
+
+Native Qwen is the reference. Per condition, a run reports greedy exact match, first-token top-1 agreement and KL, the extra loss on native's answer (`nll_gap`), and whether the first-sentence entities, numbers, and yes/no match native's. The judge adds `agree`, which requires a SAME verdict and matching entities. Gold F1 is a secondary column.
+
+`run.py bem answers.json --method distilled` rescores the [archived diagnostic answers](https://huggingface.co/datasets/tandemkv/paired-kv-qwen-smollm/tree/49ce7e032245e39fedad8d54059f8520735a875d/experiments/context-diagnostic-20261113) with BEM, which produced the findings below. BEM can accept answers that name the wrong entities, so new runs use the judge.
 
 ## Findings
 

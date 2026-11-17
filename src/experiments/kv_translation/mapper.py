@@ -74,15 +74,13 @@ def translate(source, alignment, checkpoint, normalization, source_heads):
     output = target_mean.expand(len(alignment), *target_mean.shape).clone()
     indices = torch.tensor(alignment, dtype=torch.long, device=source.device)
     valid = (indices >= 0).nonzero().flatten()
-    for batch in valid.split(16):
-        if not batch.numel():
-            continue
-        x = (source[indices[batch]] - source_mean) / source_std
+    for batch in valid.split(1024):  # The map runs in float32 even when the models use bfloat16.
+        x = (source[indices[batch]].float() - source_mean) / source_std
         x = x.unflatten(-2, (-1, source_heads))[:, :, checkpoint['layers']].flatten(-3)
         x = torch.cat((x, torch.ones_like(x[..., :1])), dim=-1)
         y = torch.einsum('brli,rlio->brlo', x, checkpoint['weights'])
         output[batch] = y.reshape(-1, *target_mean.shape) * target_std + target_mean
-    return output
+    return output.to(source.dtype)
 
 
 def to_cache(model, features):
