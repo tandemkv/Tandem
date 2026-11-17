@@ -1,199 +1,232 @@
-% This template was provided by Dr. Charles Welch
-% He uses it in his course
-%
-
+% ACL report template provided by Dr. Charles Welch.
 \documentclass[11pt]{article}
 
-% Change "review" to "final" to generate the final (sometimes called camera-ready) version.
-% Change to "preprint" to generate a non-anonymous version with page numbers.
-\usepackage[]{acl}
+\usepackage[preprint]{acl}
 \usepackage{times}
 \usepackage{latexsym}
-
-% For proper rendering and hyphenation of words containing Latin characters (including in bib files)
 \usepackage[T1]{fontenc}
-% For Vietnamese characters
-% \usepackage[T5]{fontenc}
-% See https://www.latex-project.org/help/documentation/encguide.pdf for other character sets
-
-% This assumes your files are encoded as UTF8
 \usepackage[utf8]{inputenc}
 \usepackage{microtype}
 \usepackage{inconsolata}
-\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\setlength{\titlebox}{9\baselineskip}
 
-% If the title and author information does not fit in the area allocated, uncomment the following
-%
-%\setlength\titlebox{<dim>}
-%
-% and set <dim> to something 5cm or larger.
-
-\title{ML Report:\\My Group's Project Name}
-
-
-\author{First Author, Second Author, Third Author \\
-  \texttt{\{macid1,macid2,macid3\}@mcmaster.ca} }
-
-%\author{
-%  \textbf{First Author\textsuperscript{1}},
-%  \textbf{Second Author\textsuperscript{1,2}},
-%  \textbf{Third T. Author\textsuperscript{1}},
-%  \textbf{Fourth Author\textsuperscript{1}},
-%\\
-%  \textbf{Fifth Author\textsuperscript{1,2}},
-%  \textbf{Sixth Author\textsuperscript{1}},
-%  \textbf{Seventh Author\textsuperscript{1}},
-%  \textbf{Eighth Author \textsuperscript{1,2,3,4}},
-%\\
-%  \textbf{Ninth Author\textsuperscript{1}},
-%  \textbf{Tenth Author\textsuperscript{1}},
-%  \textbf{Eleventh E. Author\textsuperscript{1,2,3,4,5}},
-%  \textbf{Twelfth Author\textsuperscript{1}},
-%\\
-%  \textbf{Thirteenth Author\textsuperscript{3}},
-%  \textbf{Fourteenth F. Author\textsuperscript{2,4}},
-%  \textbf{Fifteenth Author\textsuperscript{1}},
-%  \textbf{Sixteenth Author\textsuperscript{1}},
-%\\
-%  \textbf{Seventeenth S. Author\textsuperscript{4,5}},
-%  \textbf{Eighteenth Author\textsuperscript{3,4}},
-%  \textbf{Nineteenth N. Author\textsuperscript{2,5}},
-%  \textbf{Twentieth Author\textsuperscript{1}}
-%\\
-%\\
-%  \textsuperscript{1}Affiliation 1,
-%  \textsuperscript{2}Affiliation 2,
-%  \textsuperscript{3}Affiliation 3,
-%  \textsuperscript{4}Affiliation 4,
-%  \textsuperscript{5}Affiliation 5
-%\\
-%  \small{
-%    \textbf{Correspondence:} \href{mailto:email@domain}{email@domain}
-%  }
-%}
+\title{Tandem Machine Learning Model Report\\CD-Fall Revision 0}
+\author{Justin Kwinecki, Zayed Umer, William Pol, Manav Patel, Musab Mondal\\
+  Team 11, McMaster University}
 
 \begin{document}
 \maketitle
-% \begin{abstract}
-% \end{abstract}
 
 \section{Introduction}
 
-Here, write a brief introduction to the problem you are solving. This can be adapted from your problem description and motivation from the original proposal. This should be around 0.25-0.5 pages.
+Switching language models mid-conversation usually makes the receiver
+process the entire history again. Tandem translates the source
+model's attention key--value (KV) cache to skip that step. Frozen
+SmolLM2-360M-Instruct and Qwen2.5-0.5B-Instruct let us test different
+tokenizers and cache layouts on one GPU. We measure answer quality and
+time to first token with an existing SmolLM cache.
 
 \section{Related Work}
 
-Here, talk about the related work you encountered for your approach. Cite at least 5 references. Refer to item 2. No one has done exactly your task? Write about the most similar thing you can find. This should be around 0.25-0.5 pages.
+HeteroFold established a cross-family approach that aligns tokens and
+calibrates translated caches against receiver behavior \citep{Yun2026}.
+The within-family ridge map of \citet{Heo2026} motivated selecting a few
+source layers for each target layer. CacheBridge couples calibrated
+mapping with serving optimizations \citep{Qu2026}, which motivates
+measuring the handoff as well as the mapper. We use native Qwen's
+predictions as soft training targets \citep{Hinton2015}. We compare
+translated context with passages ranked by BM25, a lexical retrieval
+baseline \citep{Robertson2009}.
 
 \section{Dataset}
 
-You should write about your dataset here, following the guidelines regarding item 1. This section may be 0.5-1 pages. Depending on your specific dataset, you may want to include subsections for the preprocessing, annotation, etc.
+We ran both models on the same public prompts from HotpotQA distractor
+\citep{Yang2018} and OpenR1-Math-220k \citep{OpenR1}. Training was
+supervised by Qwen's native cache tensors and continuation logits.
+We retained passages, questions, and math problem text for training.
+Gold answers and published solutions were excluded from training prompts.
+Gold QA answers were used for evaluation.
+
+For the \href{https://huggingface.co/datasets/tandemkv/paired-kv-qwen-smollm/tree/27744a02d7d5f0abe61216612c46ec3b2a0bb52e/experiments/ridge-32k.C70bPO}{32,000-prompt run},
+we interleaved 16,000 prompts from each source, filtered unsuitable or
+duplicate prompts, and recorded dataset and tokenizer revisions and
+split hashes. HotpotQA test questions came from its official validation
+split, with test documents held out of training. Math test prompts came
+from a separate shard and were screened for repeated problems. The
+scale comparison used 240 held-out prompts per domain. Source-layer
+selection used a 40-prompt development split, separate from the
+original 160-prompt fit split. The document audit found zero overlap
+between expanded fitting and test, 372 shared documents between
+expanded fitting and layer selection, and one shared document between
+layer selection and test. The latter affected one of the 240 scale
+test questions and was absent from the 120-question diagnostic and
+two-hop evaluations. The full three-way split fails the V\&V
+disjointness check.
 
 \section{Features}
 
-Describe any features you used for your model, or how your data was input to your model. Are you doing feature engineering or feature selection? Are you learning embeddings? Is it all part of one neural network? Refer to item 3. This may range from 0.25 pages to 0.5 pages.
+We align source and target tokens by character offsets in the same
+plain-text prompt. Each Qwen position uses the latest SmolLM token
+ending at or before that position. Positions without a valid source
+token use the training mean. We capture keys before positional rotation
+and apply Qwen's rotation when installing its cache. Each of Qwen's
+24 layers receives a concatenation of three selected SmolLM layers,
+with separate maps for keys and values. The translator uses stored KV
+data and learns no token embeddings.
 
 \section{Implementation}
 
-Describe your model and implementation here. Refer to item 4. This may take around a page.
+We implemented the translator in PyTorch and used Hugging Face
+Transformers for the frozen models. The
+\href{https://github.com/tandemkv/Tandem/pull/87}{experiment code}
+includes paired prefill and replay checks. We first tried learned attention
+to combine source features. We then compared three- and twelve-layer
+ridge maps to trade off cache fidelity and runtime. Twelve layers
+improved token-level recovery in the pilot. Three layers gave the
+smaller map, with about 5.9 million coefficients, and served as the
+base for distillation.
+
+We fitted regularized least squares to normalized, aligned KV
+features using every eighth valid alignment and ridge penalty
+$10^{-2}$. We selected source layers using development-set
+reconstruction scores. We then learned a rank-16 correction with AdamW (learning rate
+$10^{-3}$) to minimize KL divergence from native Qwen on up to eight
+continuation tokens per prompt. We folded the correction into the
+ridge weights, keeping the same inference operation. Training ran on
+McMaster's NVIDIA GPU servers.
+
+We scaled ridge fitting and distillation to 8,000, 16,000, and 32,000
+prompts to test whether data volume improved answers. We also ran a
+matched-budget comparison to test whether exposing the source to the
+question during training hurt later handoffs. Both arms started from
+Distilled-8000 and used 120 contexts, two questions per context,
+240 AdamW updates, a $10^{-4}$ learning rate, and the same 1,562 teacher
+tokens. One question per context was generated from a passage excerpt.
+The translated prefix ended at the document for one arm and just
+before the final prompt token for the other.
 
 \section{Results and Evaluation}
 
-How are you evaluating your model? What results do you have so far? What are your baselines? Refer to item 5. This may take around 0.5 pages.
+Native Qwen prefill is the reference. Splitting its own cache and
+replaying the question reproduced first-step logits within absolute
+and relative tolerances of $10^{-3}$. We report bidirectional semantic
+agreement with native Qwen and correctness against gold answers using
+BERT Matching (BEM) \citep{Bulian2022}. Exact match and token F1
+supplement the judge. KL measures differences in token distributions.
+
+\input{figures/layer-errors.text}
+
+\paragraph{Cache reconstruction.}
+For each layer and cache component, we divide the Frobenius norm of
+the prediction error by the native norm, using absolute error if
+the native norm is zero. Figure~\ref{fig:layer-error} reports this
+comparison for the context-only translator and affine ridge.
+Distillation raised reconstruction error at every layer. Median
+key error rose from 0.231 to 0.279 and median value error from
+0.539 to 0.641. Yet mean teacher-path KL on up to eight native
+tokens improved from 2.27 for ridge to 1.29 for distillation
+(question-only KL was 2.49). Tensor similarity and decoding fidelity
+favoured different checkpoints.
+
+On those 12 prompts, repeated predictions were bit-identical.
+Extending the input preserved predictions for earlier positions
+within $10^{-3}$ absolute and relative tolerance for both maps.
+
+\paragraph{Scale.}
+On 240 HotpotQA prompts with the question visible to the source,
+plain ridge at 8,000 prompts reached 15.0\% agreement and 12.5\%
+gold correctness. Distilled-8000 reached 64.6\% and 46.7\%,
+respectively. At 32,000 prompts, distillation reached 64.2\% and
+47.5\%. Native gold correctness was 60.0\%. The larger sample yielded
+little benefit. These runs do not isolate overfitting from model
+capacity or objective mismatch. Math answer agreement remained low,
+with frequent unparseable outputs.
+
+\paragraph{Unseen questions.}
+On \href{https://huggingface.co/datasets/tandemkv/paired-kv-qwen-smollm/tree/49ce7e032245e39fedad8d54059f8520735a875d/experiments/context-diagnostic-20261113}{120 held-out questions}
+revealed only after translation, Distilled-8000 attained 47.5\% gold
+correctness. Question only reached 35.0\%, a shuffled cache 28.3\%,
+and native Qwen 64.2\%. As a component-level T-QUAL-2 check, the
+distilled, ridge, and question-only arms matched the native first token
+on 63, 38, and 38 of 120 prompts. Their mean matching prefixes were
+3.63, 2.42, and 1.02 tokens. All three had zero exact continuation
+matches. The distilled arm failed the current exact-sequence criterion.
+This check covered 929--1,462 Qwen prefix tokens in the offline harness.
+The full runner test across the V\&V context lengths remains pending.
+
+To test whether the cache carried a specific fact, we changed a digit
+in each of 120 paired documents and held
+the question fixed. Distilled-8000 chose the correct digit in both
+versions for all 120 pairs. Plain ridge did so once. The test measured
+preference between two supplied candidates.
+
+\begin{table}[t]
+  \centering
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}lrr@{}}
+    \toprule
+    Method & Agree (\%) & Gold (\%) \\
+    \midrule
+    BM25 only & 41.6 & 44.9 \\
+    + Distilled-8000 cache & 43.8 & 47.2 \\
+    + Question-seen retrain & 41.6 & 41.6 \\
+    + Context-only retrain & 47.2 & 40.4 \\
+    + Missing passage (oracle) & 53.9 & 64.0 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Free-running answers on 89 HotpotQA questions where BM25's
+  top three passages included one of two supporting passages.}
+  \label{tab:bridge}
+\end{table}
+
+\paragraph{Two-hop reasoning.}
+In Table~\ref{tab:bridge}, adding the original cache improved gold
+correctness by 2.2 percentage points (paired 95\% interval
+$[-6.7, 11.2]$) and reduced token F1 by 8.0 points. Context-only
+retraining raised native agreement and lowered gold correctness.
+Supplying the missing text brought gold correctness to 64.0\%.
+The retraining result covers one small run on one model pair.
+
+\paragraph{Latency.}
+On a Grace H100, the offline median to first token at about 7.7K
+Qwen tokens was 149\,ms with Distilled-8000 and 820\,ms with native
+prefill. This test used question-visible prompts and a warm,
+GPU-resident source cache. It excluded source prefill and routing.
+The two-hop results did not clear this experiment's quality gate
+for benchmarking the integrated runner.
 
 \section{Feedback and Plans}
 
-Write about your plans for the remainder of the project. This should include a discussion of the feedback you received from your TA, and how you plan to improve your approach. Reflect on your implementation and areas for improvement. Refer to item 6. This may be around 0.5 pages.
+The \href{https://github.com/tandemkv/Tandem/issues/81}{November 11 TA meeting notes}
+recommend demonstrating the handoff and reporting accuracy even if it
+remains low. Keep native prefill available in the PoC and reserve a
+fully document-disjoint split for the formal system test. Repeat on
+a same-tokenizer pair to probe alignment before scaling training.
 
-\section{Template Notes}
-
-You can remove this section or comment it out, as it only contains instructions for how to use this template. You may use subsections in your document as you find appropriate.
-
-\subsection{Tables and figures}
-
-See Table~\ref{citation-guide} for an example of a table and its caption.
-See Figure~\ref{fig:experiments} for an example of a figure and its caption.
-
-
-\begin{figure}[t]
-  \includegraphics[width=\columnwidth]{example-image-golden}
-  \caption{A figure with a caption that runs for more than one line.
-    Example image is usually available through the \texttt{mwe} package
-    without even mentioning it in the preamble.}
-  \label{fig:experiments}
-\end{figure}
-
-\begin{figure*}[t]
-  \includegraphics[width=0.48\linewidth]{example-image-a} \hfill
-  \includegraphics[width=0.48\linewidth]{example-image-b}
-  \caption {A minimal working example to demonstrate how to place
-    two images side-by-side.}
-\end{figure*}
-
-
-\subsection{Citations}
-
-\begin{table*}
-  \centering
-  \begin{tabular}{lll}
-    \hline
-    \textbf{Output}           & \textbf{natbib command} & \textbf{ACL only command} \\
-    \hline
-    \citep{Gusfield:97}       & \verb|\citep|           &                           \\
-    \citealp{Gusfield:97}     & \verb|\citealp|         &                           \\
-    \citet{Gusfield:97}       & \verb|\citet|           &                           \\
-    \citeyearpar{Gusfield:97} & \verb|\citeyearpar|     &                           \\
-    \citeposs{Gusfield:97}    &                         & \verb|\citeposs|          \\
-    \hline
-  \end{tabular}
-  \caption{\label{citation-guide}
-    Citation commands supported by the style file.
-  }
-\end{table*}
-
-Table~\ref{citation-guide} shows the syntax supported by the style files.
-We encourage you to use the natbib styles.
-You can use the command \verb|\citet| (cite in text) to get ``author (year)'' citations, like this citation to a paper by \citet{Gusfield:97}.
-You can use the command \verb|\citep| (cite in parentheses) to get ``(author, year)'' citations \citep{Gusfield:97}.
-You can use the command \verb|\citealp| (alternative cite without parentheses) to get ``author, year'' citations, which is useful for using citations within parentheses (e.g. \citealp{Gusfield:97}).
-
-\subsection{References}
-
-\nocite{Ando2005,andrew2007scalable,rasooli-tetrault-2015}
-
-Many websites where you can find academic papers also allow you to export a bib file for citation or bib formatted entry. Copy this into the \texttt{custom.bib} and you will be able to cite the paper in the \LaTeX{}. You can remove the example entries.
-
-\subsection{Equations}
-
-An example equation is shown below:
-\begin{equation}
-  \label{eq:example}
-  A = \pi r^2
-\end{equation}
-
-Labels for equation numbers, sections, subsections, figures and tables
-are all defined with the \verb|\label{label}| command and cross references
-to them are made with the \verb|\ref{label}| command.
-This an example cross-reference to Equation~\ref{eq:example}. You can also write equations inline, like this: $A=\pi r^2$.
-
-
-% \section*{Limitations}
+\paragraph{Data considerations.}
+Public benchmark prompts cover mainly English QA and math. Paired
+cache access is restricted because caches can encode prompt content.
+BEM accepted 250,000 for 250 million in a spot check, so future
+evaluation needs manual checks for names and numbers.
 
 \section*{Team Contributions}
 
-Write in this section a few sentences describing the contributions of each team member. What did each member work on? Refer to item 7.
+Zayed Umer led translator implementation, dataset generation, and
+component experiments. Justin Kwinecki built the inference runner
+and cache interface. William Pol maintained the development plan and
+supported verification traceability. Musab Mondal authored the system
+requirements covering cache isolation. The V\&V plan assigns Manav
+Patel the PoC accuracy and performance tests.
 
-% Bibliography entries for the entire Anthology, followed by custom entries
-%\bibliography{custom,anthology-overleaf-1,anthology-overleaf-2}
+\section*{Generative AI Use Disclosure}
 
-% Custom bibliography entries only
+OpenAI Codex helped implement and run experiment scripts, synthesize
+the saved results, and draft and compile this report.
+
 \bibliography{custom}
-
-% \appendix
-
-% \section{Example Appendix}
-% \label{sec:appendix}
-
-% This is an appendix.
 
 \end{document}
