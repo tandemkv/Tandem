@@ -1,0 +1,27 @@
+\begin{figure*}[t]
+  \centering
+  \pgfplotsset{layer error/.style={
+    width=0.46\textwidth, height=3.4cm,
+    xmin=1, xmax=24, ymin=0, ymax=0.82, xtick={1,6,12,18,24},
+    xlabel={Qwen layer}, ylabel={Relative error},
+    tick label style={font=\small}, label style={font=\small},
+    grid=major, grid style={gray!20},
+  }}
+  \begin{tikzpicture}
+    \begin{axis}[layer error, title={Keys}]
+      \addplot[blue!70!black, thick] table[x=layer,y=distilled_k,col sep=comma]{figures/layer-errors.csv};
+      \addplot[black, thick, dashed] table[x=layer,y=ridge_k,col sep=comma]{figures/layer-errors.csv};
+    \end{axis}
+  \end{tikzpicture}\hfill
+  \begin{tikzpicture}
+    \begin{axis}[layer error, title={Values}]
+      \addplot[blue!70!black, thick] table[x=layer,y=distilled_v,col sep=comma]{figures/layer-errors.csv};
+      \addplot[black, thick, dashed] table[x=layer,y=ridge_v,col sep=comma]{figures/layer-errors.csv};
+    \end{axis}
+  \end{tikzpicture}
+  \caption{Relative cache reconstruction error over 12 held-out
+  HotpotQA prefixes. Each point pools tokens and heads at one Qwen
+  layer. Solid blue is Distilled-8000. Dashed black is its undistilled
+  affine ridge baseline.}
+  \label{fig:layer-error}
+\end{figure*}

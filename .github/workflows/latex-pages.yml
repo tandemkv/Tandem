@@ -29,36 +29,19 @@ jobs:
           BUILD_DOCS=$(python3 .github/scripts/select_docs.py \
             --changed .github/workflows/latex-pages.yml --root . | xargs)
           echo "BUILD_DOCS=$BUILD_DOCS" >> "$GITHUB_ENV"
-      # Installing these with apt takes ~126s, almost all of it unpacking
-      # rather than downloading, so caching the installed files (not the
-      # .debs) is what saves time. Pinned to a commit: this template is
-      # forked widely.
-      # texlive-full is avoided deliberately; it is far larger than needed.
-      # pandoc drives the Markdown -> PDF rule in the Makefile.
       - name: Install TeX Live and pandoc
-        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
-        with:
-          packages: texlive-latex-extra texlive-science texlive-fonts-extra texlive-fonts-recommended texlive-latex-recommended lmodern pandoc
-          version: 1.1
+        run: |
+          # Install through apt so TeX's package configuration runs.
+          sudo apt-get update
+          sudo apt-get install -y texlive-latex-extra texlive-science texlive-pictures \
+            texlive-fonts-extra texlive-fonts-recommended texlive-latex-recommended lmodern pandoc
       - name: Verify the TeX toolchain is usable
         run: |
-          # A restored cache that skipped texlive's postinst would leave
-          # pdflatex unable to find packages. Fail here, loudly, rather than
-          # part way through compiling documents.
-          # Restoring cached package files skips their postinst scripts, and
-          # texlive's is what builds the ls-R filename database. Without this
-          # kpsewhich cannot see the restored packages, which surfaced as
-          # "lmodern.sty not found" on the first cache hit.
-          sudo mktexlsr
-          # ...and updmap-sys is what builds the font map files. Without it
-          # pdflatex finds lmodern.sty but not the fonts it maps to, failing
-          # with "Font rm-lmr7 at 600 not found".
-          sudo updmap-sys >/dev/null
-
           pdflatex --version | head -1
           pandoc --version | head -1
           kpsewhich article.cls
           kpsewhich amsmath.sty
+          kpsewhich pgfplots.sty
           # pandoc's default template pulls in packages the .tex documents
           # never ask for (lmodern.sty was missing the first time this ran),
           # so smoke-test the Markdown path itself rather than guessing at
