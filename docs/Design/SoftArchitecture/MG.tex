@@ -242,11 +242,6 @@ between the requirements and the design are recorded here:
 \noindent The following decisions are open. The design above assumes the
 options listed; each must be confirmed by the team before Rev 0:
 \begin{itemize}
-\item \textbf{NFR-05 for cross-model setups.} NFR-05 requires identical greedy
-  output and logits within tolerance for every approved setup. Cross-model
-  prediction is approximate (HA H8), so the design assumes that cross-model
-  setups are approved by the quality gate (SR-09) and that NFR-05 keeps its
-  exact check for same-model reuse only.
 \item \textbf{The metric for SR-09.} The design assumes the task-score metric is
   set by \acref{acJudge}; the candidates are answer F1, the equivalence judge,
   or both.
@@ -309,7 +304,9 @@ layer, and Model Runtime wraps Hugging Face Transformers.
   malformed or out-of-range request with a stable error code before any model
   work (FR-01, NFR-12). Selects the model, decides whether to reuse a cache, runs
   the request, and records it. Before reusing a same-model cache, it checks the
-  cache with Cache Compatibility (\mref{mCompat}) (FR-04). When reuse is not used, it runs the whole prompt
+  cache with Cache Compatibility (\mref{mCompat}) (FR-04). It skips cross-model
+  reuse when Request Lifecycle (\mref{mLife}) reports it switched off (SR-13).
+  When reuse is not used, it runs the whole prompt
   on the chosen model (FR-06). It returns the output in order, under the correct
   request ID (FR-08). This is the control module, at the top of the use
   hierarchy below Conversation Management.
@@ -344,7 +341,8 @@ layer, and Model Runtime wraps Hugging Face Transformers.
   NFR-05). Decides whether reuse may be attempted for a request; the decision
   depends only on the approved setups and on the request's permission and
   history (FR-13, NFR-08, SR-01, SR-05, SR-12). The supported directions come
-  from Cache Mapper (\mref{mMap}).
+  from Cache Mapper (\mref{mMap}). The sharing permission is the host-assigned
+  reuse domain carried by the request; a request cannot set it (SR-01).
 \item[Type of Module:] Abstract Object
 \end{description}
 
@@ -497,7 +495,7 @@ FR-15 & \mref{mLife}\\
 FR-16 & \mref{mMap}, \mref{mCompat}, \mref{mFit}\\
 NFR-01 & \mref{mLog}, \mref{mBench}\\
 NFR-02 & Not a module: setup instructions are a documentation deliverable\\
-NFR-03 & \mref{mQuality}\\
+NFR-03 & \mref{mConv}, \mref{mModelRun}\\
 NFR-04 & \mref{mBench}, \mref{mAccel}\\
 NFR-05 & \mref{mQuality}, \mref{mMap}, \mref{mModelRun}, \mref{mReuse}\\
 NFR-06 & \mref{mLife}, \mref{mCtrl}\\
