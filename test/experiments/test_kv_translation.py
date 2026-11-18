@@ -72,7 +72,7 @@ class KVTranslationTests(unittest.TestCase):
                        'He thinks Belfast. She was a poet.', False), pairs)
         self.assertEqual(validate(rows, lambda q, a, b: a == b or b in a),
                          {'same_accuracy': 1.0, 'same_pairs': 2, 'different_accuracy': 1.0,
-                          'different_pairs': 2})
+                          'different_pairs': 2, 'misses': []})
 
 
 if __name__ == '__main__':

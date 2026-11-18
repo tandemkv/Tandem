@@ -62,8 +62,8 @@ def first_entity(text):
 def validation_pairs(rows):
     """Pairs with known verdicts built from native answers: (question, a, b, expected_same).
 
-    SAME: the full answer versus its own first sentence. DIFFERENT: the answer with its first
-    entity replaced by another case's first entity.
+    SAME: the full answer versus its own first sentence. DIFFERENT: the answer with every mention
+    of its first entity replaced by another case's first entity.
     """
     pairs = []
     for row, other in zip(rows, rows[1:] + rows[:1]):
@@ -71,14 +71,17 @@ def validation_pairs(rows):
         pairs.append((row['question'], answer, first_sentence(answer), True))
         mine, theirs = first_entity(answer), first_entity(other['native']['answer'])
         if mine and theirs and mine.lower() != theirs.lower():
-            pairs.append((row['question'], answer, answer.replace(mine, theirs, 1), False))
+            pairs.append((row['question'], answer, answer.replace(mine, theirs), False))
     return pairs
 
 
 def validate(rows, judge):
     """Judge accuracy on pairs with known verdicts, split by expected verdict."""
-    hits = {True: [], False: []}
+    hits, misses = {True: [], False: []}, []
     for question, a, b, same in validation_pairs(rows):
         hits[same].append(judge(question, a, b) == same)
+        if not hits[same][-1]:
+            misses.append({'question': question, 'a': a, 'b': b, 'expected_same': same})
     return {'same_accuracy': sum(hits[True]) / len(hits[True]), 'same_pairs': len(hits[True]),
-            'different_accuracy': sum(hits[False]) / len(hits[False]), 'different_pairs': len(hits[False])}
+            'different_accuracy': sum(hits[False]) / len(hits[False]), 'different_pairs': len(hits[False]),
+            'misses': misses}

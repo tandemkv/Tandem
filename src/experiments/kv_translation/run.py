@@ -81,7 +81,7 @@ def judge(directory, device):
     rows = annotate(rows, model)
     (directory / 'rows.jsonl').write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in rows))
     write_json(directory / 'summary.json', summarize(rows) | {'judge_validation': validation})
-    print(json.dumps(validation, indent=2))
+    print(json.dumps({k: v for k, v in validation.items() if k != 'misses'}, indent=2))
     config = json.loads((directory / 'config.json').read_text())
     write_json(directory / 'config.json', config | {'judge': JUDGE, 'judge_quantization': 'bitsandbytes nf4',
                                                     'judge_commit': git_commit()})
