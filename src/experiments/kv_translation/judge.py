@@ -13,9 +13,9 @@ Answer A: {native}
 
 Answer B: {candidate}
 
-Do A and B give the same answer to the question? They must name the same entities, numbers, and dates. \
-Wording, length, and extra explanation do not matter. Either answer may be cut off mid-sentence. \
-Reply with exactly SAME or DIFFERENT."""
+Do A and B give the same answer to the question? Compare only the answer each one gives to the question, \
+which must name the same entities, numbers, and dates. Ignore everything else either one says: one may be \
+shorter, add explanation, or be cut off mid-sentence. Reply with exactly SAME or DIFFERENT."""
 
 
 class Judge:
