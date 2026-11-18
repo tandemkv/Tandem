@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12,<3.13"
-# dependencies = ["torch==2.9.1", "transformers==4.57.1", "accelerate==1.9.0", "safetensors==0.6.2", "huggingface-hub==0.36.0"]
+# dependencies = ["torch==2.9.1", "transformers==4.57.1", "accelerate==1.9.0", "bitsandbytes==0.50.2", "safetensors==0.6.2", "huggingface-hub==0.36.0"]
 # ///
 """Run an experiment, judge its answers, or rescore archived answers with BEM.
 
@@ -83,7 +83,8 @@ def judge(directory, device):
     write_json(directory / 'summary.json', summarize(rows) | {'judge_validation': validation})
     print(json.dumps(validation, indent=2))
     config = json.loads((directory / 'config.json').read_text())
-    write_json(directory / 'config.json', config | {'judge': JUDGE, 'judge_commit': git_commit()})
+    write_json(directory / 'config.json', config | {'judge': JUDGE, 'judge_quantization': 'bitsandbytes nf4',
+                                                    'judge_commit': git_commit()})
 
 
 if __name__ == '__main__':

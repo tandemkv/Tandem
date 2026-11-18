@@ -24,7 +24,7 @@ Runs default to 120 cases on CUDA in float32, which reproduces the archived answ
 | `data.py` | `Case` and the pinned HotpotQA test cases |
 | `conditions.py` | Ways to build the prefix cache: question only, translated, and controls |
 | `metrics.py` | Consistency with native Qwen, optional gold F1, and bootstrap summaries |
-| `judge.py` | Qwen2.5-7B judge for semantic agreement with native Qwen |
+| `judge.py` | Qwen2.5-32B judge, 4-bit on one GPU, for semantic agreement with native Qwen |
 | `experiments/` | One file per experiment: its cases and conditions |
 
 To add an experiment, add `experiments/<name>.py` with `cases()` and `CONDITIONS`. To add a condition, add a function to `conditions.py`.

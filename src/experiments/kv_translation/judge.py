@@ -1,6 +1,6 @@
 """LLM judge for whether a translated answer says the same thing as native Qwen's answer."""
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from metrics import ARTICLES, ENTITY, OPENERS, first_sentence
 
@@ -18,13 +18,15 @@ Reply with exactly SAME or DIFFERENT."""
 
 class Judge:
     def __init__(self, device='cuda'):
-        # The 32B judge needs about 65 GB in bfloat16. Run it on one 80 GB GPU: splitting it across
-        # ada's L40S cards corrupted GPU-to-GPU copies.
+        # 4-bit weights (about 20 GB) fit on one shared GPU. Keep the judge on a single GPU:
+        # splitting it across ada's L40S cards corrupted GPU-to-GPU copies.
         name, revision = JUDGE
         self.tokenizer = AutoTokenizer.from_pretrained(name, revision=revision)
         self.model = AutoModelForCausalLM.from_pretrained(
             name, revision=revision, dtype=torch.bfloat16, attn_implementation='sdpa',
-            device_map='auto' if device == 'cuda' else None).eval()
+            quantization_config=BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type='nf4',
+                                                   bnb_4bit_compute_dtype=torch.bfloat16),
+            device_map={'': 0 if device == 'cuda' else device}).eval()
         self.same, self.different = (self.tokenizer.encode(w, add_special_tokens=False)[0]
                                      for w in ('SAME', 'DIFFERENT'))
 
