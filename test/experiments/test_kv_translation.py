@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src/experiments/kv_translation'))
-from judge import annotate, validate, validation_pairs
+from judge import annotate, parse_verdict, validate, validation_pairs
 from mapper import align, translate
 from metrics import compare, entities, summarize
 from semantic import score_answers
@@ -57,7 +57,7 @@ class KVTranslationTests(unittest.TestCase):
         rows = [{'question': 'Who?', 'native': {'answer': 'Denise Levertov.'}, 'conditions': {
             'distilled': {'answer': 'Gary Dumm.', 'metrics': {'entities': False}},
             'ridge': {'answer': 'Denise Levertov, a poet.', 'metrics': {'entities': True}}}}]
-        annotate(rows, lambda *_: True)
+        annotate(rows, lambda triples: [(True, '')] * len(triples))
         self.assertFalse(rows[0]['conditions']['distilled']['metrics']['agree'])
         self.assertTrue(rows[0]['conditions']['ridge']['metrics']['agree'])
         rows[0]['gold'] = None
@@ -70,7 +70,7 @@ class KVTranslationTests(unittest.TestCase):
         self.assertIn(('Who?', rows[0]['native']['answer'], 'He thinks Denise Levertov', True), pairs)
         self.assertIn(('Who?', rows[0]['native']['answer'],
                        'He thinks Belfast. She was a poet.', False), pairs)
-        self.assertEqual(validate(rows, lambda q, a, b: a == b or b in a),
+        self.assertEqual(validate(rows, lambda triples: [(a == b or b in a, '') for _, a, b in triples]),
                          {'same_accuracy': 1.0, 'same_pairs': 2, 'different_accuracy': 1.0,
                           'different_pairs': 2, 'misses': []})
 
@@ -82,6 +82,12 @@ class KVTranslationTests(unittest.TestCase):
         different = [b for _, _, b, same in validation_pairs(rows) if not same]
         # The last row has no pair: its neighbour's only entity, American, is named in that question.
         self.assertEqual(different, ['No, both are American.', 'William Cammisano was in the Belfast family.'])
+
+
+    def test_verdict_uses_the_last_marker(self):
+        self.assertTrue(parse_verdict('A says Belfast, B says Belfast. Verdict: SAME'))
+        self.assertFalse(parse_verdict('Not Verdict: SAME. A says X, B says Y. Verdict: **DIFFERENT**'))
+        self.assertFalse(parse_verdict('A says Belfast and B is cut off'))
 
 
 if __name__ == '__main__':

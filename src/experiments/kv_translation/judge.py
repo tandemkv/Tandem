@@ -15,7 +15,16 @@ Answer B: {candidate}
 
 Do A and B give the same answer to the question? Compare only the answer each one gives to the question, \
 which must name the same entities, numbers, and dates. Ignore everything else either one says: one may be \
-shorter, add explanation, or be cut off mid-sentence. Reply with exactly SAME or DIFFERENT."""
+shorter, add explanation, or be cut off mid-sentence. In one short sentence, state the answer each gives. \
+Then end with exactly "Verdict: SAME" or "Verdict: DIFFERENT"."""
+VERDICT = re.compile(r'Verdict:\s*\**\s*(SAME|DIFFERENT)', re.IGNORECASE)
+BATCH, MAX_NEW_TOKENS = 16, 96
+
+
+def parse_verdict(reply):
+    """True for a final SAME verdict. A missing verdict counts as not SAME."""
+    verdicts = VERDICT.findall(reply)
+    return bool(verdicts) and verdicts[-1].upper() == 'SAME'
 
 
 class Judge:
@@ -23,34 +32,42 @@ class Judge:
         # 4-bit weights (about 20 GB) fit on one shared GPU. Keep the judge on a single GPU:
         # splitting it across ada's L40S cards corrupted GPU-to-GPU copies.
         name, revision = JUDGE
-        self.tokenizer = AutoTokenizer.from_pretrained(name, revision=revision)
+        self.tokenizer = AutoTokenizer.from_pretrained(name, revision=revision, padding_side='left')
         self.model = AutoModelForCausalLM.from_pretrained(
             name, revision=revision, dtype=torch.bfloat16, attn_implementation='sdpa',
             quantization_config=BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type='nf4',
                                                    bnb_4bit_compute_dtype=torch.bfloat16),
             device_map={'': 0 if device == 'cuda' else device}).eval()
-        self.same, self.different = (self.tokenizer.encode(w, add_special_tokens=False)[0]
-                                     for w in ('SAME', 'DIFFERENT'))
 
     @torch.inference_mode()
-    def __call__(self, question, native, candidate):
-        """True when the judge prefers SAME over DIFFERENT for the first reply token."""
-        content = PROMPT.format(question=question, native=native, candidate=candidate)
-        ids = self.tokenizer.apply_chat_template([{'role': 'user', 'content': content}],
-                                                 add_generation_prompt=True, return_tensors='pt')
-        logits = self.model(input_ids=ids.to(self.model.device), logits_to_keep=1).logits[0, -1]
-        if not torch.isfinite(logits).all():  # Broken GPU-to-GPU copies on ada produced NaN logits.
-            raise RuntimeError('Judge produced non-finite logits')
-        return bool(logits[self.same] > logits[self.different])
+    def __call__(self, triples):
+        """Judge (question, native, candidate) triples in batches. Returns (same, reply) per triple.
+
+        A reply without a parsable verdict counts as not SAME.
+        """
+        results = []
+        for i in range(0, len(triples), BATCH):
+            texts = [self.tokenizer.apply_chat_template(
+                [{'role': 'user', 'content': PROMPT.format(question=q, native=a, candidate=b)}],
+                tokenize=False, add_generation_prompt=True) for q, a, b in triples[i:i + BATCH]]
+            inputs = self.tokenizer(texts, return_tensors='pt', padding=True).to(self.model.device)
+            output = self.model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+                                         top_p=None, top_k=None, temperature=None)
+            for reply in self.tokenizer.batch_decode(output[:, inputs.input_ids.shape[1]:],
+                                                     skip_special_tokens=True):
+                results.append((parse_verdict(reply), reply.strip()))
+            print(f'judged {len(results)}/{len(triples)}', flush=True)
+        return results
 
 
 def annotate(rows, judge):
     """Add the judge verdict and semantic agreement (judge SAME and matching entities) to each row."""
-    for row in rows:
-        for result in row['conditions'].values():
-            metrics = result['metrics']
-            metrics['judge'] = judge(row['question'], row['native']['answer'], result['answer'])
-            metrics['agree'] = metrics['judge'] and metrics['entities']
+    targets = [(row, result) for row in rows for result in row['conditions'].values()]
+    verdicts = judge([(row['question'], row['native']['answer'], result['answer']) for row, result in targets])
+    for (row, result), (same, reply) in zip(targets, verdicts, strict=True):
+        result['judge_reply'] = reply
+        result['metrics']['judge'] = same
+        result['metrics']['agree'] = same and result['metrics']['entities']
     return rows
 
 
@@ -88,11 +105,12 @@ def validation_pairs(rows):
 
 def validate(rows, judge):
     """Judge accuracy on pairs with known verdicts, split by expected verdict."""
+    pairs = validation_pairs(rows)
     hits, misses = {True: [], False: []}, []
-    for question, a, b, same in validation_pairs(rows):
-        hits[same].append(judge(question, a, b) == same)
-        if not hits[same][-1]:
-            misses.append({'question': question, 'a': a, 'b': b, 'expected_same': same})
+    for (question, a, b, same), (verdict, reply) in zip(pairs, judge([p[:3] for p in pairs]), strict=True):
+        hits[same].append(verdict == same)
+        if verdict != same:
+            misses.append({'question': question, 'a': a, 'b': b, 'expected_same': same, 'reply': reply})
     return {'same_accuracy': sum(hits[True]) / len(hits[True]), 'same_pairs': len(hits[True]),
             'different_accuracy': sum(hits[False]) / len(hits[False]), 'different_pairs': len(hits[False]),
             'misses': misses}
