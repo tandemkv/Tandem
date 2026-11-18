@@ -1,4 +1,6 @@
 """LLM judge for whether a translated answer says the same thing as native Qwen's answer."""
+import re
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
@@ -52,26 +54,35 @@ def annotate(rows, judge):
     return rows
 
 
-def first_entity(text):
-    for match in ENTITY.finditer(first_sentence(text)):
-        if not set(match.group().lower().split()) <= ARTICLES | OPENERS:
-            return match.group()
+def answer_entity(answer, question):
+    """The first entity in the answer's first sentence that the question does not already name."""
+    for match in ENTITY.finditer(first_sentence(answer)):
+        words = match.group()
+        if not set(words.lower().split()) <= ARTICLES | OPENERS | {'yes', 'no'} \
+                and words.lower() not in question.lower():
+            return words
     return None
 
 
 def validation_pairs(rows):
     """Pairs with known verdicts built from native answers: (question, a, b, expected_same).
 
-    SAME: the full answer versus its own first sentence. DIFFERENT: the answer with every mention
-    of its first entity replaced by another case's first entity.
+    SAME: the full answer versus its own first sentence. DIFFERENT: a leading yes/no flipped, or
+    else every mention of the answer entity replaced by another case's answer entity.
     """
     pairs = []
     for row, other in zip(rows, rows[1:] + rows[:1]):
-        answer = row['native']['answer']
-        pairs.append((row['question'], answer, first_sentence(answer), True))
-        mine, theirs = first_entity(answer), first_entity(other['native']['answer'])
+        question, answer = row['question'], row['native']['answer']
+        pairs.append((question, answer, first_sentence(answer), True))
+        lead = re.match(r'\s*(Yes|No)\b', answer)
+        if lead:
+            flipped = 'No' if lead.group(1) == 'Yes' else 'Yes'
+            pairs.append((question, answer, answer[:lead.start(1)] + flipped + answer[lead.end(1):], False))
+            continue
+        mine = answer_entity(answer, question)
+        theirs = answer_entity(other['native']['answer'], other['question'])
         if mine and theirs and mine.lower() != theirs.lower():
-            pairs.append((row['question'], answer, answer.replace(mine, theirs), False))
+            pairs.append((question, answer, answer.replace(mine, theirs), False))
     return pairs
 
 

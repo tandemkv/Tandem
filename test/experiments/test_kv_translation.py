@@ -74,6 +74,15 @@ class KVTranslationTests(unittest.TestCase):
                          {'same_accuracy': 1.0, 'same_pairs': 2, 'different_accuracy': 1.0,
                           'different_pairs': 2, 'misses': []})
 
+    def test_validation_pairs_flip_yes_no_and_skip_question_entities(self):
+        rows = [{'question': 'Are both bands American?', 'native': {'answer': 'Yes, both are American.'}},
+                {'question': 'Was William Cammisano in a Mafia family?',
+                 'native': {'answer': 'William Cammisano was in the Kansas City family.'}},
+                {'question': 'Where?', 'native': {'answer': 'Belfast, Northern Ireland.'}}]
+        different = [b for _, _, b, same in validation_pairs(rows) if not same]
+        # The last row has no pair: its neighbour's only entity, American, is named in that question.
+        self.assertEqual(different, ['No, both are American.', 'William Cammisano was in the Belfast family.'])
+
 
 if __name__ == '__main__':
     unittest.main()
