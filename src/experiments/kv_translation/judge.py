@@ -18,8 +18,8 @@ Reply with exactly SAME or DIFFERENT."""
 
 class Judge:
     def __init__(self, device='cuda'):
-        # The 32B judge needs about 65 GB in bfloat16, so it is split across the visible GPUs.
-        # Set CUDA_VISIBLE_DEVICES to the cards with enough free memory.
+        # The 32B judge needs about 65 GB in bfloat16. Run it on one 80 GB GPU: splitting it across
+        # ada's L40S cards corrupted GPU-to-GPU copies.
         name, revision = JUDGE
         self.tokenizer = AutoTokenizer.from_pretrained(name, revision=revision)
         self.model = AutoModelForCausalLM.from_pretrained(
@@ -35,6 +35,8 @@ class Judge:
         ids = self.tokenizer.apply_chat_template([{'role': 'user', 'content': content}],
                                                  add_generation_prompt=True, return_tensors='pt')
         logits = self.model(input_ids=ids.to(self.model.device), logits_to_keep=1).logits[0, -1]
+        if not torch.isfinite(logits).all():  # Broken GPU-to-GPU copies on ada produced NaN logits.
+            raise RuntimeError('Judge produced non-finite logits')
         return bool(logits[self.same] > logits[self.different])
 
 
