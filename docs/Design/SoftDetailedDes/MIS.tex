@@ -1,47 +1,32 @@
 \documentclass[12pt, titlepage]{article}
-
-\usepackage{amsmath, mathtools}
-
+\usepackage{amsmath}
 \usepackage[round]{natbib}
-\usepackage{amsfonts}
 \usepackage{amssymb}
 \usepackage{graphicx}
-\usepackage{colortbl}
-\usepackage{xr}
 \usepackage{hyperref}
 \usepackage{longtable}
-\usepackage{xfrac}
 \usepackage{tabularx}
 \usepackage{float}
-\usepackage{siunitx}
 \usepackage{booktabs}
 \usepackage{multirow}
-\usepackage[section]{placeins}
-\usepackage{caption}
 \usepackage{fullpage}
-
 \hypersetup{
-bookmarks=true,     % show bookmarks bar?
-colorlinks=true,       % false: boxed links; true: colored links
-linkcolor=red,          % color of internal links (change box color with linkbordercolor)
-citecolor=blue,      % color of links to bibliography
-filecolor=magenta,  % color of file links
-urlcolor=cyan          % color of external links
+bookmarks=true,
+colorlinks=true,
+linkcolor=red,
+citecolor=blue,
+filecolor=magenta,
+urlcolor=cyan
 }
-
 \usepackage{array}
-
-\externaldocument{../../SRS/SRS}
-
 \input{../../Comments.text}
 \input{../../Common.text}
 
 \begin{document}
+\sloppy
 
-\title{Module Interface Specification for \progname{}}
-
+\title{Module Interface Specification for \progname{}\\ \large Design Document Revision $-1$}
 \author{\authname}
-
 \date{\today}
 
 \maketitle
@@ -50,264 +35,698 @@ urlcolor=cyan          % color of external links
 
 \section{Revision History}
 
-\begin{tabularx}{\textwidth}{p{3cm}p{2cm}X}
-\toprule {\bf Date} & {\bf Version} & {\bf Notes}\\
+\begin{tabularx}{\textwidth}{p{3cm} p{3cm} X}
+\toprule
+\textbf{Date} & \textbf{Version} & \textbf{Notes}\\
 \midrule
-Date 1 & 1.0 & Notes\\
-Date 2 & 1.1 & Notes\\
+Nov 16, 2026 & Rev $-1$ & Module interface syntax: access programs, state variables, environment variables and exceptions. Access routine semantics are deferred to Rev 0.\\
 \bottomrule
 \end{tabularx}
 
-~\newpage
-
+\newpage
 \section{Symbols, Abbreviations and Acronyms}
 
-See SRS Documentation at \wss{give url}
-
-\wss{Also add any additional symbols, abbreviations or acronyms}
+See the SRS \citep{TandemSRS}, available at
+\href{https://github.com/tandemkv/Tandem/blob/main/pdfs/SRS-Volere/SRS.pdf}{pdfs/SRS-Volere/SRS.pdf},
+for a complete list of symbols, abbreviations and acronyms. The additional terms
+used in this document are MG (Module Guide), MIS (Module Interface
+Specification) and ADT (abstract data type).
 
 \newpage
-
 \tableofcontents
-
 \newpage
 
 \pagenumbering{arabic}
 
 \section{Introduction}
 
-The following document details the Module Interface Specifications for
-\wss{Fill in your project name and description}
+This document gives the interfaces of the modules in the
+\href{https://github.com/tandemkv/Tandem/blob/main/pdfs/Design/SoftArchitecture/MG.pdf}{Module Guide},
+in the same order and grouping. Revision $-1$ gives syntax only; access routine
+semantics are deferred to Revision 0.
 
-Complementary documents include the System Requirement Specifications
-and Module Guide.  The full documentation and implementation can be
-found at \url{...}.  \wss{provide the url for your repo}
+\section{Notation and Types}
 
-\section{Notation}
-
-\wss{You should describe your notation.  You can use what is below as
-  a starting point.}
-
-The structure of the MIS for modules comes from \citet{HoffmanAndStrooper1995},
-with the addition that template modules have been adapted from
-\cite{GhezziEtAl2003}.  The mathematical notation comes from Chapter 3 of
-\citet{HoffmanAndStrooper1995}.  For instance, the symbol := is used for a
-multiple assignment statement and conditional rules follow the form $(c_1
-\Rightarrow r_1 | c_2 \Rightarrow r_2 | ... | c_n \Rightarrow r_n )$.
-
-The following table summarizes the primitive data types used by \progname. 
+The MIS structure and notation follow \citet{HoffmanAndStrooper1995}. The
+primitive data types are:
 
 \begin{center}
 \renewcommand{\arraystretch}{1.2}
-\noindent 
-\begin{tabular}{l l p{7.5cm}} 
-\toprule 
-\textbf{Data Type} & \textbf{Notation} & \textbf{Description}\\ 
+\begin{tabular}{l l p{7.5cm}}
+\toprule
+\textbf{Data Type} & \textbf{Notation} & \textbf{Description}\\
 \midrule
 character & char & a single symbol or digit\\
-integer & $\mathbb{Z}$ & a number without a fractional component in (-$\infty$, $\infty$) \\
-natural number & $\mathbb{N}$ & a number without a fractional component in [1, $\infty$) \\
-real & $\mathbb{R}$ & any number in (-$\infty$, $\infty$)\\
+integer & $\mathbb{Z}$ & a number without a fractional component in $(-\infty, \infty)$\\
+natural number & $\mathbb{N}$ & a number without a fractional component in $[0, \infty)$\\
+real & $\mathbb{R}$ & any number in $(-\infty, \infty)$\\
+boolean & $\mathbb{B}$ & $\{\mathit{true}, \mathit{false}\}$\\
 \bottomrule
-\end{tabular} 
+\end{tabular}
 \end{center}
 
-\noindent
-The specification of \progname \ uses some derived data types: sequences, strings, and
-tuples. Sequences are lists filled with elements of the same data type. Strings
-are sequences of characters. Tuples contain a list of values, potentially of
-different types. In addition, \progname \ uses functions, which
-are defined by the data types of their inputs and outputs. Local functions are
-described by giving their type signature followed by their specification.
+The derived types are listed below. A tuple is written with its field names and
+types; $A \to B$ is a function (map) from $A$ to $B$, and $\mathcal{P}\,A$ is a
+set of elements of $A$.
 
-\section{Module Decomposition}
+\subsubsection*{Text, models and devices}
 
-The following table is taken directly from the Module Guide document for this project.
+\begin{description}
+\item[String:] a sequence of characters.
+\item[Token:] an integer token ID of one tokenizer; \texttt{Seq of Token} is a
+  sequence of token IDs.
+\item[ModelName:] one of the answer models: $\{\mathit{Qwen}$, $\mathit{SmolLM}\}$
+  in the proof of concept.
+\item[Revision:] a pinned model or tokenizer revision, a String.
+\item[Model:] an answer model loaded by Model Runtime (\hyperref[mModelRun]{M12}).
+\item[ClassifierModel:] the classifier loaded by Model Selection
+  (\hyperref[mSelect]{M5}).
+\item[DeviceName:] one of $\{\mathit{cpu}$, $\mathit{cuda}$, $\mathit{mps}\}$.
+\item[DType:] one of $\{\mathit{float32}$, $\mathit{float16}$, $\mathit{bfloat16}\}$, a
+  number format.
+\item[DeviceHandle:] a tuple $(\mathit{device}: \mathit{DeviceName}$, $\mathit{dtype}:
+  \mathit{DType})$, a device reserved by Accelerator Interface
+  (\hyperref[mAccel]{M1}).
+\item[File:] a file on disk.
+\end{description}
 
-\begin{table}[h!]
-\centering
-\begin{tabular}{p{0.3\textwidth} p{0.6\textwidth}}
-\toprule
-\textbf{Level 1} & \textbf{Level 2}\\
-\midrule
+\subsubsection*{Caches}
 
-{Hardware-Hiding} & ~ \\
-\midrule
+\begin{description}
+\item[Cache:] an instance of the Cache Store ADT (\hyperref[mCache]{M13}).
+\item[Keys:] Seq of Seq of Seq of (Seq of $\mathbb{R}$): one vector per layer, head
+  and token position.
+\item[KVData:] a tuple $(\mathit{keys}: \mathit{Keys}$, $\mathit{values}: \mathit{Keys})$.
+\item[Provenance:] a tuple $(\mathit{model}: \mathit{ModelName}$, $\mathit{tokens}:
+  \text{Seq of Token}$, $\mathit{complete}: \mathbb{B})$, the tags of a Cache.
+\item[CheckpointRef:] a tuple $(\mathit{name}: \mathit{String}$, $\mathit{direction}:
+  \mathit{ModelName} \times \mathit{ModelName}$, $\mathit{revision}: \mathit{Revision}$, $\mathit{identifier}: \mathit{String})$.
+\item[Map:] the translator loaded from one checkpoint, a function from KVData to
+  KVData.
+\item[CacheRecord:] a tuple $(\mathit{source}: \mathit{ModelName}$, $\mathit{target}:
+  \mathit{ModelName}$, $\mathit{predictor}: \mathit{String}$, $\mathit{targetRevision}:
+  \mathit{Revision}$, $\mathit{alignment}: \mathit{String}$, $\mathit{checksum}: \mathit{String})$.
+\item[Reason:] one of $\{\mathit{prefixMismatch}$, $\mathit{wrongModel}$, $\mathit{wrongRevision}$, $\mathit{shapeMismatch}$, $\mathit{dtypeMismatch}$, $\mathit{nonFinite}$, $\mathit{noPermission}$, $\mathit{checksumMismatch}\}$.
+\item[Verdict:] either $\mathit{accepted}$ or $\mathit{rejected}(\mathit{Reason})$.
+\end{description}
 
-\multirow{7}{0.3\textwidth}{Behaviour-Hiding} & Input Parameters\\
-& Output Format\\
-& Output Verification\\
-& Temperature ODEs\\
-& Energy Equations\\ 
-& Control Module\\
-& Specification Parameters Module\\
-\midrule
+\subsubsection*{Requests and conversations}
 
-\multirow{3}{0.3\textwidth}{Software Decision} & {Sequence Data Structure}\\
-& ODE Solver\\
-& Plotting\\
-\bottomrule
+\begin{description}
+\item[RequestID:] a unique identifier of a request, a String.
+\item[Settings:] a tuple $(\mathit{maxNewTokens}: \mathbb{N})$.
+\item[Request:] a tuple $(\mathit{id}: \mathit{RequestID}$, $\mathit{prompt}:
+  \mathit{String}$, $\mathit{conversation}: \mathit{String}$, $\mathit{current}:
+  \mathit{ModelName}$, $\mathit{settings}: \mathit{Settings})$.
+\item[ErrorCode:] one of $\{\mathit{missingField}$, $\mathit{emptyPrompt}$, $\mathit{promptTooLong}$, $\mathit{invalidSettings}\}$.
+\item[Answer:] a String of generated text.
+\item[Turn:] a tuple $(\mathit{role}: \{\mathit{user}$, $\mathit{assistant}\}$, $\mathit{text}: \mathit{String})$.
+\item[Conversation:] an instance of the Conversation Management ADT
+  (\hyperref[mConv]{M2}).
+\item[Status:] one of $\{\mathit{queued}$, $\mathit{running}$, $\mathit{completed}$, $\mathit{failed}$, $\mathit{cancelled}$, $\mathit{timedOut}\}$.
+\item[Policy:] a tuple $(\mathit{table}: \mathit{String} \to \mathit{ModelName}$, $\mathit{threshold}: \mathbb{R})$, the task-to-model table and the complexity
+  threshold.
+\item[Admission:] one of $\{\mathit{prefill}$, $\mathit{queued}$, $\mathit{retry}\}$, the
+  decision for a fallback prefill.
+\item[Outcome:] one of $\{\mathit{reused}$, $\mathit{fellBack}$, $\mathit{failed}\}$, the
+  result of one request for the fallback window.
+\item[Entry:] a run-log record, a tuple $(\mathit{id}: \mathit{RequestID}$, $\mathit{source}: \mathit{ModelName}$, $\mathit{target}: \mathit{ModelName}$, $\mathit{status}: \mathit{Status}$, $\mathit{reused}: \mathbb{B}$, $\mathit{timings}:
+  \text{Seq of } \mathbb{R}$, $\mathit{translator}: \mathit{String}$, $\mathit{checkpoint}: \mathit{String}$, $\mathit{translated}: \mathbb{B})$.
+\end{description}
 
-\end{tabular}
-\caption{Module Hierarchy}
-\label{TblMH}
-\end{table}
+\subsubsection*{Evaluation and fitting}
+
+\begin{description}
+\item[Score:] a tuple $(\mathit{equivalent}: \mathbb{B}$, $\mathit{correct}: \mathbb{B})$.
+\item[Workload:] a tuple $(\mathit{name}: \mathit{String}$, $\mathit{conversations}:
+  \text{Seq of (Seq of String)}$, $\mathit{settings}: \mathit{Settings})$.
+\item[Report:] Seq of $(\mathit{native}: \mathit{Entry}$, $\mathit{reused}:
+  \mathit{Entry}$, $\mathit{score}: \mathit{Score})$, one row per request of a
+  workload.
+\item[Approval:] one of $\{\mathit{approved}$, $\mathit{notApproved}\}$.
+\item[SetupRecord:] a tuple $(\mathit{pair}: \mathit{ModelName} \times \mathit{ModelName}$, $\mathit{revision}: \mathit{Revision}$, $\mathit{version}: \mathit{String})$.
+\item[Evidence:] a tuple $(\mathit{heldOut}: \mathbb{R}$, $\mathit{split}: \mathit{String}$, $\mathit{outputPassed}: \mathbb{B}$, $\mathit{privacyPassed}: \mathbb{B}$, $\mathit{failurePassed}: \mathbb{B})$, the tests recorded for a setup.
+\item[Corpus:] a set of paired conversations.
+\item[Split:] a tuple $(\mathit{fitting}$, $\mathit{selection}$, $\mathit{test})$ of
+  disjoint sets of conversation groups.
+\item[Method:] the name of a fitting procedure, a String.
+\end{description}
+
+The access programs in each module are given by a table with columns \emph{In},
+\emph{Out} and \emph{Exceptions}. Each input is written as \emph{name}: Type. An
+entry of ``--'' means none. A program with several outputs returns a tuple,
+written $T_1 \times T_2$, and $\bot$ means no value. A library keeps no state
+between calls, but it may read or write environment variables. In a template module, the access programs other than
+the constructor (\emph{new}) act on the instance they are called on. In an
+abstract object, every access program except \emph{init} raises
+\emph{NotInitialized} when it is called before \emph{init}.
 
 \newpage
-~\newpage
+\section{Hardware-Hiding Module}
 
-\section{MIS of \wss{Module Name}} \label{Module} \wss{Use labels for
-  cross-referencing}
+\subsection{Accelerator Interface (M1)}\label{mAccel}
 
-\wss{You can reference SRS labels, such as R\ref{R_Inputs}.}
+\textbf{Module:} Accelerator Interface. \textbf{Type:} Library.
 
-\wss{It is also possible to use \LaTeX for hypperlinks to external documents.}
+\textbf{Uses:} OS.
 
-\subsection{Module}
+\subsubsection*{Syntax}
 
-\wss{Short name for the module}
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+allocate & \emph{device}: DeviceName, \emph{dtype}: DType & DeviceHandle & UnsupportedDevice, UnsupportedDType\\
+\bottomrule
+\end{tabularx}
 
-\subsection{Uses}
+\subsubsection*{State Variables}
 
+None.
 
-\subsection{Syntax}
+\subsubsection*{Environment Variables}
 
-\subsubsection{Exported Constants}
+\begin{description}
+\item[devices:] $\mathcal{P}$ DeviceName, the devices present on the machine.
+\end{description}
 
-\subsubsection{Exported Access Programs}
+\newpage
+\section{Behaviour-Hiding Modules}
+
+\subsection{Conversation Management (M2)}\label{mConv}
+
+\textbf{Template Module:} Conversation Management. \textbf{Type:} Abstract Data Type. \textbf{Exported type:} Conversation.
+
+\textbf{Uses:} \hyperref[mCtrl]{Request Control (M3)}.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+new Conversation & \emph{model}: ModelName & Conversation & --\\
+send & \emph{message}: String, \emph{maxNewTokens}: $\mathbb{N}$ & Answer & InvalidMessage, RequestFailed\\
+\bottomrule
+\end{tabularx}
+
+\emph{send} both extends the history and returns the answer, because a turn is
+one exchange.
+
+\subsubsection*{State Variables}
+
+\begin{description}
+\item[history:] Seq of Turn, the user and assistant messages in order.
+\item[cache:] Cache, the cache after the last successful answer.
+\item[current:] ModelName, the model that produced \emph{cache}.
+\item[text:] String, the conversation text that \emph{cache} represents.
+\item[boundary:] $\mathbb{N}$, the character offset in \emph{text} where \emph{cache} ends.
+\end{description}
+
+\subsubsection*{Environment Variables}
+
+None.
+
+\newpage
+\subsection{Request Control (M3)}\label{mCtrl}
+
+\textbf{Module:} Request Control. \textbf{Type:} Library.
+
+\textbf{Uses:} \hyperref[mSelect]{Model Selection (M5)}, \hyperref[mReuse]{Reuse Policy (M6)}, \hyperref[mHandoff]{Cache Handoff (M7)}, \hyperref[mCompat]{Cache Compatibility (M8)}, \hyperref[mModelRun]{Model Runtime (M12)}, \hyperref[mLife]{Request Lifecycle (M9)}, \hyperref[mLog]{Run Logging (M10)}.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+process & \emph{req}: Request, \emph{prior}: Cache, \emph{boundary}: $\mathbb{N}$ & Answer $\times$ Cache & InvalidRequest(ErrorCode), RequestFailed, Overloaded, ContextTooLong\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+None.
+
+\subsubsection*{Environment Variables}
+
+None.
+
+\newpage
+\subsection{Comparison Benchmark (M4)}\label{mBench}
+
+\textbf{Module:} Comparison Benchmark. \textbf{Type:} Library.
+
+\textbf{Uses:} \hyperref[mCtrl]{Request Control (M3)}, \hyperref[mQuality]{Quality Measurement (M11)}, \hyperref[mLog]{Run Logging (M10)}.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+runWorkload & \emph{workload}: Workload & Report & MismatchedWorkload\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+None.
+
+\subsubsection*{Environment Variables}
+
+None.
+
+\newpage
+\subsection{Model Selection (M5)}\label{mSelect}
+
+\textbf{Module:} Model Selection. \textbf{Type:} Abstract Object.
+
+\textbf{Uses:} None.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+init & \emph{policy}: Policy, \emph{device}: DeviceHandle & -- & AlreadyInitialized, InvalidPolicy, ClassifierUnavailable\\
+select & \emph{prompt}: String & ModelName & NotInitialized, EmptyPrompt, ClassificationFailed\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+\begin{description}
+\item[policy:] Policy, the task-to-model table and the complexity threshold.
+\item[classifier:] ClassifierModel, the loaded classifier.
+\item[initialized:] $\mathbb{B}$, false until \emph{init} is called.
+\end{description}
+
+\subsubsection*{Environment Variables}
+
+\begin{description}
+\item[weights:] File, the classifier checkpoint on disk.
+\end{description}
+
+\newpage
+\subsection{Reuse Policy (M6)}\label{mReuse}
+
+\textbf{Module:} Reuse Policy. \textbf{Type:} Abstract Object.
+
+\textbf{Uses:} \hyperref[mMap]{Cache Mapper (M14)}, \hyperref[mLimits]{Limits (M16)}.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+init & -- & -- & AlreadyInitialized\\
+qualify & \emph{setup}: SetupRecord, \emph{evidence}: Evidence & -- & NotInitialized, IncompleteEvidence\\
+allowed & \emph{target}: ModelName, \emph{req}: Request & $\mathbb{B}$ & NotInitialized\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+\begin{description}
+\item[approved:] $\mathcal{P}$ SetupRecord, the setups approved for reuse.
+\item[initialized:] $\mathbb{B}$, false until \emph{init} is called.
+\end{description}
+
+\subsubsection*{Environment Variables}
+
+None.
+
+\newpage
+\subsection{Cache Handoff (M7)}\label{mHandoff}
+
+\textbf{Module:} Cache Handoff. \textbf{Type:} Library.
+
+\textbf{Uses:} \hyperref[mMap]{Cache Mapper (M14)}, \hyperref[mCompat]{Cache Compatibility (M8)}, \hyperref[mLife]{Request Lifecycle (M9)}, \hyperref[mModelRun]{Model Runtime (M12)}.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+handoff & \emph{cache}: Cache, \emph{target}: ModelName, \emph{conversation}: String, \emph{boundary}: $\mathbb{N}$, \emph{maxNewTokens}: $\mathbb{N}$ & Answer $\times$ Cache & UnsupportedDirection, HandoffFailed\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+None.
+
+\subsubsection*{Environment Variables}
+
+None.
+
+\newpage
+\subsection{Cache Compatibility (M8)}\label{mCompat}
+
+\textbf{Module:} Cache Compatibility. \textbf{Type:} Library.
+
+\textbf{Uses:} \hyperref[mCache]{Cache Store (M13)}, \hyperref[mModelRun]{Model Runtime (M12)}, \hyperref[mLimits]{Limits (M16)}.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+seal & \emph{cache}: Cache, \emph{checkpoint}: CheckpointRef, \emph{targetRevision}: Revision & CacheRecord & --\\
+check & \emph{cache}: Cache, \emph{record}: CacheRecord $\cup$ \{$\bot$\}, \emph{target}: ModelName, \emph{conversation}: String, \emph{boundary}: $\mathbb{N}$ & Verdict & --\\
+canary & \emph{predicted}: Cache & $\mathbb{B}$ & CanaryUnavailable\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+None.
+
+\subsubsection*{Environment Variables}
+
+None.
+
+\newpage
+\subsection{Request Lifecycle (M9)}\label{mLife}
+
+\textbf{Module:} Request Lifecycle. \textbf{Type:} Abstract Object.
+
+\textbf{Uses:} \hyperref[mCache]{Cache Store (M13)}, \hyperref[mModelRun]{Model Runtime (M12)}, \hyperref[mLimits]{Limits (M16)}.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+init & -- & -- & AlreadyInitialized\\
+start & \emph{id}: RequestID & -- & NotInitialized, DuplicateRequest\\
+finish & \emph{id}: RequestID, \emph{status}: Status & -- & NotInitialized, UnknownRequest\\
+cancel & \emph{id}: RequestID & -- & NotInitialized, UnknownRequest\\
+status & \emph{id}: RequestID & Status & NotInitialized, UnknownRequest\\
+admit & \emph{id}: RequestID & Admission & NotInitialized, UnknownRequest\\
+recordOutcome & \emph{id}: RequestID, \emph{outcome}: Outcome & -- & NotInitialized, UnknownRequest\\
+release & \emph{cache}: Cache & -- & NotInitialized\\
+holdPredicted & \emph{cache}: Cache & -- & NotInitialized\\
+markUsed & \emph{cache}: Cache & -- & NotInitialized\\
+expireUnused & -- & -- & NotInitialized\\
+\bottomrule
+\end{tabularx}
+
+\emph{admit} both decides and takes the queue slot, so that two requests cannot
+see the same free slot.
+
+\subsubsection*{State Variables}
+
+\begin{description}
+\item[states:] RequestID $\to$ Status, the current state of each request.
+\item[window:] Seq of Outcome, the outcomes of the last \texttt{FALLBACK\_WINDOW} requests.
+\item[queued:] $\mathbb{N}$, the number of fallback prefills waiting, at most \texttt{QUEUE\_LIMIT}.
+\item[enabled:] $\mathbb{B}$, whether cross-model reuse is on; false once the fallback rate exceeds \texttt{FALLBACK\_RATE\_LIMIT}.
+\item[unused:] $\mathcal{P}$(Cache $\times$ $\mathbb{R}$), the predicted caches not yet used, each with the time it was made. Their total size is at most \texttt{PREDICTED\_CACHE\_LIMIT}, and each expires after \texttt{PREDICTED\_CACHE\_TTL} (SR-14).
+\item[initialized:] $\mathbb{B}$, false until \emph{init} is called.
+\end{description}
+
+\subsubsection*{Environment Variables}
+
+\begin{description}
+\item[clock:] $\mathbb{R}$, the time used for timeouts and expiry.
+\end{description}
+
+\newpage
+\subsection{Run Logging (M10)}\label{mLog}
+
+\textbf{Module:} Run Logging. \textbf{Type:} Library.
+
+\textbf{Uses:} None.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+record & \emph{entry}: Entry & -- & LogWriteFailed\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+None.
+
+\subsubsection*{Environment Variables}
+
+\begin{description}
+\item[logFile:] File, the destination for records.
+\end{description}
+
+\newpage
+\subsection{Quality Measurement (M11)}\label{mQuality}
+
+\textbf{Module:} Quality Measurement. \textbf{Type:} Library.
+
+\textbf{Uses:} None.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+score & \emph{answer}: Answer, \emph{native}: Answer, \emph{gold}: String & Score & EmptyReference\\
+taskScore & \emph{answer}: Answer, \emph{gold}: String & $\mathbb{R}$ & EmptyReference\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+None.
+
+\subsubsection*{Environment Variables}
+
+None.
+
+\newpage
+\section{Software Decision Modules}
+
+\subsection{Model Runtime (M12)}\label{mModelRun}
+
+\textbf{Module:} Model Runtime. \textbf{Type:} Abstract Object.
+
+\textbf{Uses:} \hyperref[mAccel]{Accelerator Interface (M1)}.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+init & -- & -- & AlreadyInitialized\\
+load & \emph{model}: ModelName, \emph{revision}: Revision, \emph{device}: DeviceHandle & -- & NotInitialized, LoadFailed\\
+tokenize & \emph{model}: ModelName, \emph{text}: String & Seq of Token & NotInitialized, ModelNotLoaded\\
+revision & \emph{model}: ModelName & Revision & NotInitialized, ModelNotLoaded\\
+generate & \emph{model}: ModelName, \emph{tokens}: Seq of Token, \emph{prior}: Cache, \emph{maxNewTokens}: $\mathbb{N}$ & Answer $\times$ Cache & NotInitialized, ModelNotLoaded, ContextTooLong\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+\begin{description}
+\item[loaded:] ModelName $\to$ Model, the loaded checkpoints.
+\item[initialized:] $\mathbb{B}$, false until \emph{init} is called.
+\end{description}
+
+\subsubsection*{Environment Variables}
+
+\begin{description}
+\item[weights:] File, the checkpoint files on disk.
+\end{description}
+
+\newpage
+\subsection{Cache Store (M13)}\label{mCache}
+
+\textbf{Template Module:} Cache Store. \textbf{Type:} Abstract Data Type. \textbf{Exported type:} Cache.
+
+\textbf{Uses:} None.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+new Cache & \emph{model}: ModelName, \emph{tokens}: Seq of Token, \emph{data}: KVData, \emph{complete}: $\mathbb{B}$ & Cache & --\\
+length & -- & $\mathbb{N}$ & --\\
+provenance & -- & Provenance & --\\
+kv & -- & KVData & --\\
+copy & -- & Cache & --\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+\begin{description}
+\item[data:] KVData, the keys and values of the cache.
+\item[model:] ModelName, the model that produced the cache.
+\item[tokens:] Seq of Token, the exact token IDs represented.
+\item[complete:] $\mathbb{B}$, true when the last generated token ended the turn.
+\end{description}
+
+\subsubsection*{Environment Variables}
+
+None.
+
+\newpage
+\subsection{Cache Mapper (M14)}\label{mMap}
+
+\textbf{Module:} Cache Mapper. \textbf{Type:} Abstract Object.
+
+\textbf{Uses:} \hyperref[mCache]{Cache Store (M13)}, \hyperref[mModelRun]{Model Runtime (M12)}.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+init & -- & -- & AlreadyInitialized\\
+register & \emph{source}: ModelName, \emph{target}: ModelName, \emph{checkpoint}: CheckpointRef & -- & NotInitialized, DuplicateDirection, InvalidCheckpoint\\
+lookup & \emph{source}: ModelName, \emph{target}: ModelName & CheckpointRef & NotInitialized, UnsupportedDirection, UnavailableCheckpoint\\
+translate & \emph{cache}: Cache, \emph{target}: ModelName, \emph{conversation}: String, \emph{boundary}: $\mathbb{N}$ & Cache $\times$ Seq of Token & NotInitialized, UnsupportedDirection, InvalidCheckpoint\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+\begin{description}
+\item[entries:] (ModelName $\times$ ModelName) $\to$ CheckpointRef, the registered checkpoint for each direction.
+\item[maps:] (ModelName $\times$ ModelName) $\to$ Map, the loaded map for each registered direction.
+\item[initialized:] $\mathbb{B}$, false until \emph{init} is called.
+\end{description}
+
+\subsubsection*{Environment Variables}
+
+\begin{description}
+\item[checkpoints:] File, the translator checkpoint files on disk.
+\end{description}
+
+\newpage
+\subsection{Predictor Fitting (M15)}\label{mFit}
+
+\textbf{Module:} Predictor Fitting. \textbf{Type:} Library. \textbf{Runs:} offline only.
+
+\textbf{Uses:} \hyperref[mModelRun]{Model Runtime (M12)}, \hyperref[mCache]{Cache Store (M13)}.
+
+\subsubsection*{Syntax}
+
+\begin{tabularx}{\textwidth}{l X l X}
+\toprule
+\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
+\midrule
+split & \emph{corpus}: Corpus, \emph{selectionGroups}: $\mathbb{N}$, \emph{testGroups}: $\mathbb{N}$ & Split & InsufficientData\\
+fit & \emph{split}: Split, \emph{method}: Method & CheckpointRef & OverlappingSplit, FitFailed\\
+\bottomrule
+\end{tabularx}
+
+\subsubsection*{State Variables}
+
+None.
+
+\subsubsection*{Environment Variables}
+
+\begin{description}
+\item[checkpoints:] File, the fitted predictor checkpoints that \emph{fit} writes.
+\end{description}
+
+\newpage
+\subsection{Limits (M16)}\label{mLimits}
+
+\textbf{Module:} Limits. \textbf{Type:} Library.
+
+\textbf{Uses:} None.
+
+\subsubsection*{Exported Constants}
+
+The values come from the
+\href{https://github.com/tandemkv/Tandem/blob/main/pdfs/VnVPlan/VnVPlan.pdf}{VnV Plan}
+(Appendix, Symbolic Parameters) and the SRS; those marked provisional are confirmed on development data (SRS OI3).
 
 \begin{center}
-\begin{tabular}{p{2cm} p{4cm} p{4cm} p{2cm}}
-\hline
-\textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions} \\
-\hline
-\wss{accessProg} & - & - & - \\
-\hline
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l l l}
+\toprule
+\textbf{Constant} & \textbf{Value} & \textbf{Source}\\
+\midrule
+\texttt{SCORE\_ATOL} & 0.001 & SRS\\
+\texttt{SCORE\_RTOL} & 0.001 & SRS\\
+\texttt{GREEDY\_TOKENS} & 32 & SRS\\
+\texttt{REGRESSION\_LIMIT} & 0.05 & SRS NFR-07, NFR-08\\
+\texttt{QUALITY\_LOSS\_LIMIT} & 0.05 (answer F1, absolute) & VnV; HA SR-09 (provisional)\\
+\texttt{CANARY\_TOKENS} & 16 & VnV; HA SR-10 (provisional)\\
+\texttt{CANARY\_LIMIT} & 0.5 (relative K/V error) & VnV; HA SR-10 (provisional)\\
+\texttt{FALLBACK\_WINDOW} & 100 requests & VnV; HA SR-13 (provisional)\\
+\texttt{FALLBACK\_RATE\_LIMIT} & 0.5 & VnV; HA SR-13 (provisional)\\
+\texttt{QUEUE\_LIMIT} & 32 requests & VnV; HA SR-13 (provisional)\\
+\texttt{PREDICTED\_CACHE\_LIMIT} & 2 GiB & VnV; HA SR-14 (provisional)\\
+\texttt{PREDICTED\_CACHE\_TTL} & 60 s & VnV; HA SR-14 (provisional)\\
+\bottomrule
 \end{tabular}
 \end{center}
 
-\subsection{Semantics}
+\subsubsection*{Syntax}
 
-\subsubsection{State Variables}
+None. Limits exports constants only.
 
-\wss{Not all modules will have state variables.  State variables give the module
-  a memory.}
+\subsubsection*{State Variables}
 
-\subsubsection{Environment Variables}
+None.
 
-\wss{This section is not necessary for all modules.  Its purpose is to capture
-  when the module has external interaction with the environment, such as for a
-  device driver, screen interface, keyboard, file, etc.}
+\subsubsection*{Environment Variables}
 
-\subsubsection{Assumptions}
+None.
 
-\wss{Try to minimize assumptions and anticipate programmer errors via
-  exceptions, but for practical purposes assumptions are sometimes appropriate.}
+\newpage
+\section*{Appendix --- Generative AI Use Disclosure}
 
-\subsubsection{Access Routine Semantics}
+\subsection*{AI Tools Used}
 
-\noindent \wss{accessProg}():
 \begin{itemize}
-\item transition: \wss{if appropriate} 
-\item output: \wss{if appropriate} 
-\item exception: \wss{if appropriate} 
+\item Claude Code, a command-line tool, using the model Claude Opus 5.5
+  (model ID \texttt{claude-opus-5-5}).
+\end{itemize}
+No other AI tools were used in drafting this document.
+
+\subsection*{How and Where Used}
+
+\begin{itemize}
+\item \textbf{Reviewing the document.} The draft was checked against the course
+  MIS checklist, the template and the Rev $-1$ rubric. The tool listed types that
+  were used but not defined, abstract objects without initialization, arguments
+  whose meaning was unclear, exceptions that could not occur, and uses that
+  disagreed with the Module Guide or the code.
+\item \textbf{Modifying text.} The tool removed sections that Rev $-1$ does not
+  require, removed the eleven modules merged in the Module Guide (27 to 16
+  modules), and rewrote the derived types and the access-program tables of all
+  16 modules.
 \end{itemize}
 
-\wss{A module without environment variables or state variables is unlikely to
-  have a state transition.  In this case a state transition can only occur if
-  the module is changing the state of another module.}
+\subsection*{Verification of AI-Generated Content}
 
-\wss{Modules rarely have both a transition and an output.  In most cases you
-  will have one or the other.}
+\begin{itemize}
+\item Every change was proposed as a plan and approved by a team member before
+  it was made.
+\item Argument names and uses were checked against the source code in
+  \texttt{src/}, and module names, types and uses against the Module Guide.
+\item The document was rebuilt with no LaTeX errors or undefined references.
+\end{itemize}
+The team reviewed the final text and is responsible for its accuracy.
 
-\subsubsection{Local Functions}
-
-\wss{As appropriate} \wss{These functions are for the purpose of specification.
-  They are not necessarily something that is going to be implemented
-  explicitly.  Even if they are implemented, they are not exported; they only
-  have local scope.}
-
-\newpage
-
-\bibliographystyle {plainnat}
-\bibliography {../../../refs/References}
-
-\newpage
-
-\newpage{}
-
-\section{Appendix --- Generative AI Use Disclosure}
-
-\wss{ChatGPT (version 5) was used to brainstorm ideas for the template for this disclose section.}
-
-\subsection{AI Tools Used}
-
-\wss{Give the name of the AI tool(s) used and the version.}
-
-\subsection{How and Where Used}
-
-\wss{Explain what the tool(s) were used for.  Examples include: brainstorming,
-explaining a technical concept, reviewing the document, generating or modifying
-text, generating or modifying diagrams, identifying errors or omissions or
-inconsistencies.}
-
-\wss{For each of the uses, identify which parts of the document were affected.}
-
-\wss{You do not need to report every interaction, but you should disclose the 
-uses that materially contributed to your work}
-
-\subsection{Verification of AI-Generated Content}
-
-\wss{\begin{itemize}
-    \item Describe how the team checked AI-generated or AI-assisted material
-    before including it in the document.
-    \item In particular, verify factual claims, technical assertions,
-    requirements, calculations, references, and other information for which an
-    AI system may produce incorrect or fabricated results.
-    \item \textbf{The team is responsible for the accuracy, completeness,
-consistency, and appropriateness of the submitted document, regardless of
-whether material was generated by a human or an AI system.}
-\end{itemize}}
-
-\newpage{}
-
-\section{Appendix --- Reflection}
-
-\wss{Not required for CAS 741 projects}
-
-The information in this section will be used to evaluate the team members on the
-graduate attribute of Problem Analysis and Design.
-
-\input{../../Reflection.text}
-
-\begin{enumerate}
-  \item What went well while writing this deliverable? 
-  \item What pain points did you experience during this deliverable, and how
-    did you resolve them?
-  \item Which of your design decisions stemmed from speaking to your client(s)
-  or a proxy (e.g. your peers, stakeholders, potential users)? For those that
-  were not, why, and where did they come from?
-  \item While creating the design doc, what parts of your other documents (e.g.
-  requirements, hazard analysis, etc), it any, needed to be changed, and why?
-  \item What are the limitations of your solution?  Put another way, given
-  unlimited resources, what could you do to make the project better? (LO\_ProbSolutions)
-  \item Give a brief overview of other design solutions you considered.  What
-  are the benefits and tradeoffs of those other designs compared with the chosen
-  design?  From all the potential options, why did you select the documented design?
-  (LO\_Explores)
-  \item (After you have implemented another team's module, which means this
-  isn't filled in until after the original deadline). What did you learn by
-  implementing another team's module? Were all the details you needed in the
-  documentation, or did you need to make assumptions, or ask the other team
-  questions?  If your team also had another team implement one of your modules,
-  what was this experience like?  Are there things in your documentation you
-  could have changed to make the process go more smoothly for when an
-  ``outsider'' completes some of the implementation?
-
-  Your reflection should be about concepts learned in your SE education, such as modular decomposition, cohesion, coupling, information hiding, etc.  You should critique the quality and utility of the specification you received.
-
-  You should create a PR for your implemented module.  A link to the PR should be part of your reflection.
-
-\end{enumerate}
+\bibliographystyle{plainnat}
+\bibliography{../../../refs/References}
 
 \end{document}
