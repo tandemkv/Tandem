@@ -118,8 +118,7 @@ set of elements of $A$.
   and token position.
 \item[KVData:] a tuple $(\mathit{keys}: \mathit{Keys}$, $\mathit{values}: \mathit{Keys})$.
 \item[Provenance:] a tuple $(\mathit{model}: \mathit{ModelName}$, $\mathit{tokens}:
-  \text{Seq of Token}$, $\mathit{complete}: \mathbb{B}$, $\mathit{domain}:
-  \mathit{ReuseDomain} \cup \{\bot\})$, the tags of a Cache.
+  \text{Seq of Token}$, $\mathit{complete}: \mathbb{B})$, the tags of a Cache.
 \item[CheckpointRef:] a tuple $(\mathit{name}: \mathit{String}$, $\mathit{direction}:
   \mathit{ModelName} \times \mathit{ModelName}$, $\mathit{revision}: \mathit{Revision}$, $\mathit{identifier}: \mathit{String})$.
 \item[Map:] the translator loaded from one checkpoint, a function from KVData to
@@ -407,7 +406,7 @@ None.
 \textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
 \midrule
 seal & \emph{cache}: Cache, \emph{checkpoint}: CheckpointRef, \emph{targetRevision}: Revision & CacheRecord & --\\
-check & \emph{cache}: Cache, \emph{record}: CacheRecord $\cup$ \{$\bot$\}, \emph{target}: ModelName, \emph{conversation}: String, \emph{boundary}: $\mathbb{N}$, \emph{domain}: ReuseDomain $\cup$ \{$\bot$\} & Verdict & --\\
+check & \emph{cache}: Cache, \emph{record}: CacheRecord $\cup$ \{$\bot$\}, \emph{target}: ModelName, \emph{conversation}: String, \emph{boundary}: $\mathbb{N}$ & Verdict & --\\
 canary & \emph{predicted}: Cache & $\mathbb{B}$ & CanaryUnavailable\\
 \bottomrule
 \end{tabularx}
@@ -508,7 +507,7 @@ None.
 \toprule
 \textbf{Name} & \textbf{In} & \textbf{Out} & \textbf{Exceptions}\\
 \midrule
-score & \emph{answer}: Answer, \emph{native}: Answer, \emph{gold}: String & Score & EmptyReference\\
+score & \emph{answer}: Answer, \emph{native}: Answer, \emph{gold}: String $\cup$ \{$\bot$\} & Score & EmptyReference\\
 taskScore & \emph{answer}: Answer, \emph{gold}: String & $\mathbb{R}$ & EmptyReference\\
 \bottomrule
 \end{tabularx}
