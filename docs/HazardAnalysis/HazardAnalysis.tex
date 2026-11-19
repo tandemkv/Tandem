@@ -159,7 +159,8 @@ The components below come from the context and work partitioning in the
   \item \label{comp:router} \textbf{Semantic router:} selects the target
   model for each turn.
   \item \label{comp:app} \textbf{Application:} supplies the conversation,
-  the new message and the sharing group of each request.
+  the new message and the reuse domain of each request. Each conversation has
+  its own domain unless the host explicitly enables sharing.
   \item \label{comp:engine} \textbf{Serving engine and GPU:} the vLLM
   engine \cite{Kwon2023vLLM}, its memory manager, the source and target
   model files, the source model's KV cache and the hardware.
@@ -338,11 +339,13 @@ F9 & Compatibility checker & Reuses a cache from another request's sharing
 group & Private history exposed & Sharing group not checked; request names
 its own group & Cross-group isolation tests (T-ISOLATION) & Sharing group
 assigned by the host; permission check required & SR-01, SR-04 & H2\\
-F10 & KV loader & Reuse is measurably faster than normal processing & An
-observer infers other users' conversations & Caches reused across users &
-Review of sharing settings; timing tests & Reuse only within one sharing
-group; disable cross-user sharing by default; document the remaining risk &
-SR-12 & H10\\
+F10 & KV loader & Time to first token reveals whether another user in the
+same reuse domain has matching cached history & An observer infers information
+about another user's conversation & Host places conversations from different
+users in a shared domain; no timing obfuscation & Review of the default domain
+policy and risk statement &
+Use one domain per conversation by default; require the host to opt into
+sharing; document and accept the remaining within-domain risk & SR-12 & H10\\
 F11 & KV loader & Cache evicted or overwritten while in use & Corrupted
 output for an active request & Reference-counting fault; eviction policy &
 Repeated lifecycle tests (T-LIFE) & Pin caches while any request uses them
@@ -428,11 +431,15 @@ Table~\ref{tab:constants}.
   match. \emph{Fit
   criterion:} a test alters one byte of a cache and checks that it is
   rejected.
-  \item[SR-12 --- Limit timing leaks (H10)] \progname{} shall reuse a cache
-  only within the sharing group it was predicted for, with reuse across users
-  disabled by default; the documentation shall state the remaining timing
-  risk. \emph{Fit criterion:} T-ISOLATION shows no reuse across groups; a
-  documentation review finds the risk statement.
+  \item[SR-12 --- Limit exposure to timing leaks (H10)] Each conversation
+  shall use its own reuse domain unless the host explicitly assigns a shared
+  one. The documentation shall state that a user in a shared domain may infer
+  whether another user's matching history is cached by observing time to first
+  token. This within-domain timing leak is an accepted risk for the capstone;
+  \progname{} makes no timing-obfuscation guarantee. \emph{Fit criterion:}
+  T-ISOLATION-1 shows that the default domains do not reuse caches across
+  conversations; a documentation review finds the warning and accepted-risk
+  statement.
   \item[SR-13 --- Limit fallback load (H14)] \progname{} shall admit
   fallback prefills only within the engine's configured prefill budget,
   queue at most \texttt{QUEUE\_LIMIT} further requests, and reject any
@@ -513,15 +520,17 @@ SR-09, SR-10 & Capstone & Cross-model prediction is approximate (H8), so
 quality checks are part of the core product.\\
 SR-11 (checksum and source) & Capstone & Cheap to build and detects
 corruption.\\
-SR-12 (sharing-group limit) & Capstone & Configuration and documentation
-only.\\
+SR-12 (default reuse-domain isolation) & Capstone & Use a separate domain for
+each conversation unless the host explicitly enables sharing, and document the
+accepted within-domain timing risk.\\
 SR-13, SR-14 & Capstone, after the core path works & Needed for load tests,
 but depend on the reuse path.\\
 Signed caches and caches uploaded by users & Future & A1 excludes untrusted
 sources in the first release; accepting them would need authentication of
 the cache source.\\
 Timing side-channel defences, such as padding response times & Future &
-Costs part of the speedup; SR-12 reduces the risk for now.\\
+SR-12 limits who is exposed by default but does not hide timing inside a shared
+domain. Padding would cost part of the speedup.\\
 Hazards of operation across several servers & Future & Outside the
 \srs{} scope.\\
 \bottomrule
