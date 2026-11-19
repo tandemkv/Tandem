@@ -1,5 +1,50 @@
 # Local inference runner
 
+## Selecting a translation model
+
+`translation_model` defaults to `"tandem"` and does not affect answer-model
+routing. `"heterofold"`, `"kvport"`, and custom registered names are also supported.
+No adapters or weights are bundled; supply a `KVCacheMapper` and checkpoint ID
+for each supported direction:
+
+```python
+from dataclasses import asdict
+from src.translation_layer.inference_runner import InferenceRunner
+from src.translation_layer.selection import TranslationCheckpoint
+
+runner = InferenceRunner(
+    model_a=answer_model_a, model_b=answer_model_b,
+    classifier_model=classifier, mode="complexity",
+    translation_model="kvport",
+    translation_models={
+        "kvport": {
+            (answer_model_a.model_name, answer_model_b.model_name):
+                TranslationCheckpoint("kvport-checkpoint@revision", kvport_adapter),
+        },
+    },
+)
+result = runner.receive_prompt(
+    "new question", conversation_text=full_text, current_model="model_a",
+    kv_cache=source_cache, cached_token_ids=source_ids,
+    prefix_boundary=len(prefix_text),
+)
+answer, cache = result  # Existing two-value unpacking is unchanged.
+evaluation_record = asdict(result.metadata)
+```
+
+Register directions using the checkpoint's exact model names. Reverse translation
+needs its own entry. The adapter validates checkpoint contents, revisions and
+layout (#73). Unknown names, unavailable alternatives and unsupported directions
+raise errors; the runner never substitutes another translator.
+
+`result.metadata` records the method, checkpoint, source/target models and whether
+translation ran. Native calls have no checkpoint. The demo factory accepts the
+same selection options.
+
+Existing `kv_cache_mapper=mapper` calls still work for Tandem, with checkpoint
+`None`. Do not combine this argument with named registrations or an alternative.
+Without an adapter, native calls work but cache handoffs fail.
+
 For stateful conversations, use `ConversationManager`:
 
 ```python
@@ -13,8 +58,8 @@ answer = conversation.send("Explain gravity.")
 answer = conversation.send("How does that affect time?", max_new_tokens=100)
 ```
 
-The runner requires four supplied dependencies: two answer models, a classifier,
-and a KV cache mapper (or explicit `None` to disable translation). The demo is
+The runner requires two answer models and a classifier. For translation, supply
+named checkpoint registrations or a legacy KV cache mapper. The demo is
 optional; for your own implementations, construct the runner directly:
 
 ```python
