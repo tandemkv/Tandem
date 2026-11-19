@@ -34,9 +34,28 @@ def permuted(name):
     return build
 
 
+def with_native(role, translated_features, native_features):
+    """Translated features with keys (role 0) or values (role 1) replaced by native Qwen's."""
+    if translated_features.shape != native_features.shape:
+        raise ValueError('Translated and native features differ in shape')
+    mixed = translated_features.clone()
+    mixed[:, role] = native_features[:, role]
+    return mixed
+
+
+def native_part(name, role):
+    """Diagnostic: the translation with native Qwen keys or values, to locate where it loses quality."""
+    def build(harness, prepared):
+        native = capture(harness.qwen, prepared.target_ids)
+        return with_native(role, translated(name)(harness, prepared), native)
+    return build
+
+
 CONDITIONS = {
     'question_only': question_only,
     'ridge': translated('ridge'),
     'distilled': translated('distilled'),
     'permuted_distilled': permuted('distilled'),
+    'native_keys_distilled': native_part('distilled', 0),
+    'native_values_distilled': native_part('distilled', 1),
 }

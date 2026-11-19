@@ -5,6 +5,7 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src/experiments/kv_translation'))
+from conditions import with_native
 from judge import annotate, parse_verdict, validate, validation_pairs
 from mapper import align, translate
 from metrics import compare, entities, summarize
@@ -88,6 +89,15 @@ class KVTranslationTests(unittest.TestCase):
         self.assertTrue(parse_verdict('A says Belfast, B says Belfast. Verdict: SAME'))
         self.assertFalse(parse_verdict('Not Verdict: SAME. A says X, B says Y. Verdict: **DIFFERENT**'))
         self.assertFalse(parse_verdict('A says Belfast and B is cut off'))
+
+
+    def test_native_part_replaces_only_one_role(self):
+        translated, native = torch.zeros(3, 2, 4, 2), torch.ones(3, 2, 4, 2)
+        keys = with_native(0, translated, native)
+        self.assertTrue(keys[:, 0].eq(1).all() and keys[:, 1].eq(0).all())
+        self.assertTrue(translated.eq(0).all())
+        with self.assertRaises(ValueError):
+            with_native(1, translated, torch.ones(2, 2, 4, 2))
 
 
 if __name__ == '__main__':
