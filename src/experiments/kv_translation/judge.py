@@ -7,15 +7,28 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from metrics import ARTICLES, ENTITY, OPENERS, first_sentence
 
 JUDGE = ('Qwen/Qwen2.5-32B-Instruct', '5ede1c97bbab6ce5cda5812749b4c0bdf79b18dd')
-PROMPT = """Question: {question}
+PROMPT = """You check whether two responses give the same answer to a question.
 
-Answer A: {native}
+Rules:
+- Find the core answer each response gives to the question: the entity, number, date, place, or yes/no.
+- SAME if the core answers match, even when one response is longer, adds explanation or extra facts, \
+names the answer more or less fully, or is cut off after giving it.
+- DIFFERENT if the core answers differ, or if one response never gives an answer.
 
-Answer B: {candidate}
+Examples:
+- "Paris." vs "The capital is Paris, which is also its largest city." -> SAME
+- "Universal Pictures" vs "Universal." -> SAME
+- "Yes, both are lakes in Canada." vs "Yes." -> SAME
+- "Born in 1952." vs "He was born in 1957 in Ohio." -> DIFFERENT
+- "Lyon." vs "The answer is" -> DIFFERENT
 
-Do A and B give the same answer to the question? Compare only the answer each one gives to the question, \
-which must name the same entities, numbers, and dates. Ignore everything else either one says: one may be \
-shorter, add explanation, or be cut off mid-sentence. In one short sentence, state the answer each gives. \
+Question: {question}
+
+Response A: {native}
+
+Response B: {candidate}
+
+In one short sentence, state the core answer each response gives. \
 Then end with exactly "Verdict: SAME" or "Verdict: DIFFERENT"."""
 VERDICT = re.compile(r'Verdict:\s*\**\s*(SAME|DIFFERENT)', re.IGNORECASE)
 BATCH, MAX_NEW_TOKENS = 16, 96
