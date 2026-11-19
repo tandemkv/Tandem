@@ -31,7 +31,7 @@ Response B: {candidate}
 In one short sentence, state the core answer each response gives. \
 Then end with exactly "Verdict: SAME" or "Verdict: DIFFERENT"."""
 VERDICT = re.compile(r'Verdict:\s*\**\s*(SAME|DIFFERENT)', re.IGNORECASE)
-BATCH, MAX_NEW_TOKENS = 16, 96
+BATCH, MAX_NEW_TOKENS = 8, 96  # Small batches leave room on shared GPUs.
 
 
 def parse_verdict(reply):
