@@ -36,13 +36,13 @@ def download(path, revision=REVISION, sha256=None):
     return file
 
 
-def test_rows():
-    """The pinned held-out split, verified against its manifest."""
+def split_rows(split='test'):
+    """A pinned split ('train' or 'test'), verified against its manifest."""
     manifest = json.loads(download(f'{RUN}/data.json').read_text())
-    with gzip.open(download(f'{RUN}/test.jsonl.gz'), 'rb') as stream:
+    with gzip.open(download(f'{RUN}/{split}.jsonl.gz'), 'rb') as stream:
         data = stream.read()
-    if hashlib.sha256(data).hexdigest() != manifest['sha256']['test.jsonl']:
-        raise ValueError('Test split did not match its manifest')
+    if hashlib.sha256(data).hexdigest() != manifest['sha256'][f'{split}.jsonl']:
+        raise ValueError(f'{split} split did not match its manifest')
     return [json.loads(line) for line in data.splitlines()]
 
 

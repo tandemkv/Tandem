@@ -10,7 +10,7 @@ class Prepared:
     def __init__(self, harness, case):
         self.case = case
         self.source_ids, self.target_ids, self.suffix, self.alignment = split_prompt(
-            case.prompt, harness.tokenizers)
+            case.prompt, harness.tokenizers, case.split_at)
         self.source = capture(harness.smol, self.source_ids)
 
 

@@ -17,10 +17,11 @@ def align(source_offsets, target_offsets):
     return result
 
 
-def split_prompt(text, tokenizers):
-    boundary = text.rfind('\n\nQuestion: ')
+def split_prompt(text, tokenizers, marker='\n\nQuestion: '):
+    """Split at the last shared token boundary before the marker. The prefix is translated."""
+    boundary = text.rfind(marker)
     if boundary < 1:
-        raise ValueError('Prompt has no question boundary')
+        raise ValueError(f'Prompt has no {marker!r} boundary')
     encodings = {name: tok(text, add_special_tokens=False, return_offsets_mapping=True)
                  for name, tok in tokenizers.items()}
     ends = {name: {end: i + 1 for i, (start, end) in reversed(list(enumerate(e.offset_mapping)))
