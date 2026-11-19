@@ -9,6 +9,7 @@
 
   run.py run context_only --out DIR        -> DIR/context_only-<time>/{config.json,rows.jsonl,summary.json}
   run.py judge DIR/context_only-<time>      -> adds judge verdicts and semantic agreement
+  run.py summarize DIR/context_only-<time>  -> recomputes summary.json, including subsets
   run.py bem answers.json --method distilled
 """
 import argparse
@@ -69,12 +70,26 @@ def run(experiment, count, device, dtype, out):
             stream.write(json.dumps(row, ensure_ascii=False) + '\n')
             stream.flush()
             print(f'{i}/{len(cases)} {case.id}', flush=True)
-    write_json(directory / 'summary.json', summarize(rows))
+    write_summary(directory, rows)
     print(directory)
 
 
 def read_rows(directory):
     return [json.loads(line) for line in (directory / 'rows.jsonl').read_text().splitlines()]
+
+
+def write_summary(directory, rows, **extra):
+    """Summarize all rows and each subset the experiment declares, keeping earlier judge validation."""
+    experiment = json.loads((directory / 'config.json').read_text())['experiment']
+    spec = importlib.import_module(f'experiments.{experiment}')
+    summary = summarize(rows)
+    subsets = {name: [r for r in rows if keep(r)] for name, keep in getattr(spec, 'SUBSETS', {}).items()}
+    if subsets:
+        summary['subsets'] = {name: summarize(chosen) for name, chosen in subsets.items() if chosen}
+    previous = directory / 'summary.json'
+    if 'judge_validation' not in extra and previous.exists():
+        extra = {k: v for k, v in json.loads(previous.read_text()).items() if k == 'judge_validation'}
+    write_json(previous, summary | extra)
 
 
 def judge(directory, device):
@@ -83,7 +98,7 @@ def judge(directory, device):
     validation = validate(rows, model)  # Accuracy on pairs whose verdict is known by construction.
     rows = annotate(rows, model)
     (directory / 'rows.jsonl').write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in rows))
-    write_json(directory / 'summary.json', summarize(rows) | {'judge_validation': validation})
+    write_summary(directory, rows, judge_validation=validation)
     print(json.dumps({k: v for k, v in validation.items() if k != 'misses'}, indent=2))
     config = json.loads((directory / 'config.json').read_text())
     write_json(directory / 'config.json', config | {'judge': JUDGE, 'judge_quantization': 'bitsandbytes nf4',
@@ -102,6 +117,8 @@ if __name__ == '__main__':
     command = commands.add_parser('judge')
     command.add_argument('directory', type=Path)
     command.add_argument('--device', choices=('cpu', 'cuda'), default='cuda')
+    command = commands.add_parser('summarize', help='Recompute summary.json, including subsets, from rows.jsonl')
+    command.add_argument('directory', type=Path)
     command = commands.add_parser('bem')
     command.add_argument('answers', type=Path)
     command.add_argument('--method', choices=('distilled', 'ridge', 'question_only'), default='distilled')
@@ -110,6 +127,8 @@ if __name__ == '__main__':
         run(args.experiment, args.count, args.device, args.dtype, args.out)
     elif args.command == 'judge':
         judge(args.directory, args.device)
+    elif args.command == 'summarize':
+        write_summary(args.directory, read_rows(args.directory))
     else:
         from semantic import score_answers
         content = args.answers.read_text()
