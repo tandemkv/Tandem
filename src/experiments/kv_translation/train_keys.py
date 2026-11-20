@@ -137,13 +137,18 @@ def main():
     best = validate(0)
     running = []
     for step, case in enumerate(fit[:args.steps], 1):
-        value = loss(h, Example(h, case, h.device), weights, values)
+        try:
+            example = Example(h, case, h.device)
+        except ValueError as error:  # The prompt has no clean shared split for both tokenizers.
+            print(f'skip {case.id}: {error}', flush=True)
+            continue
+        value = loss(h, example, weights, values)
         optimizer.zero_grad(set_to_none=True)
         value.backward()
         torch.nn.utils.clip_grad_norm_([weights], 1.0, error_if_nonfinite=True)
         optimizer.step()
         running.append(value.item())
-        if step % args.every == 0 or step == args.steps:
+        if (step % args.every == 0 or step == args.steps) and running:
             print(f'step {step} train attention KL {sum(running) / len(running):.4f}', flush=True)
             running.clear()
             current = validate(step)
