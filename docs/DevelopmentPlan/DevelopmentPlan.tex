@@ -408,16 +408,15 @@ The PoC is planned around the risks most likely to stop the project:
   \end{enumerate}
   For each scenario, and for several values of $K$ and trunk length, we
   report the time to first token (TTFT) and the number of prompt tokens
-  vLLM actually processed (taken from its metrics, not estimated). Since
-  vLLM's paged KV cache uses a fixed number of bytes per token, prompt
-  tokens processed is also a direct stand-in for KV cache memory: fewer
-  tokens computed means less KV cache memory allocated. If simultaneous
-  arrival processes close to $K$ copies of the trunk while the warm cache
-  processes one, the gap Tandem targets is real, and the difference
-  between the two scenarios is the most Tandem can save. Reporting actual
-  GPU memory usage and KV cache read/write throughput directly, rather
-  than deriving them from token counts, is a backlog item for later
-  benchmarking once the measurement moves past this PoC scale.
+  vLLM actually processed (taken from its metrics, not estimated). We use
+  the token count to measure repeated prefill work, not peak GPU memory
+  use. Memory savings remain a stretch goal and need a direct comparison
+  with the matched baseline. If simultaneous arrival processes close to
+  $K$ copies of the trunk while the warm cache processes one, the gap
+  Tandem targets is real, and the difference between the two scenarios is
+  the most Tandem can save. Direct measurements of GPU memory use and KV
+  cache read/write throughput remain backlog items for later benchmarking
+  once the measurement moves past this PoC scale.
   \item \textbf{Risk 2: tree attention correctness.} A PyTorch program
   packs a shared trunk and several branches into one sequence, builds the
   tree attention mask and per-branch position IDs, runs one forward pass,

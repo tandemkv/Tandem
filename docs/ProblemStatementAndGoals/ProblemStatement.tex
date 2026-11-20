@@ -261,14 +261,17 @@ the resulting list before including it.
   \item \textbf{How did you and your team adjust the scope of your goals
   to ensure they are suitable for a Capstone project?}
 
-  We wanted to improve inference resource use, especially memory, even
-  if the gain was modest. The proposed scope turns that motivation into
-  one workload we can measure: successive requests with shared conversation
-  history that semantic routing sends to different models. Using existing
-  models lets us focus on serving-system integration, correctness, and
-  performance. Memory savings and broader model support remain stretch
-  goals. This gives us a bounded implementation to evaluate within the
-  course, with success judged by reproducible results.
+  We first wanted to make inference use fewer resources, including memory.
+  To keep the project manageable, we narrowed that interest to repeated
+  prefill after model switches. We will judge success by lower time to
+  first token and more completed requests per second, while preserving the
+  selected model's behaviour and keeping requests independent. Same-model
+  requests and requests without shared context must still work normally.
+
+  Memory savings and support for more model configurations remain stretch
+  goals. We can meet the core goals by improving response time and serving
+  capacity without reducing peak GPU memory use. Any claim of memory
+  savings will need a separate comparison with the matched baseline.
 \end{enumerate}
 
 \end{document}
