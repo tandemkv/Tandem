@@ -363,6 +363,9 @@ The team will also walk the advisor through the model-switch sequence
   token, ignoring the sharing group, and appending output after a restart.
   The tests \tref{T-CACHE-1}, \tref{T-CACHE-3}, \tref{T-ISOLATION-1} and
   \tref{T-FB-2} must each fail on their seeded fault.
+  For \tref{T-CACHE-2}, move the suffix boundary one token early or late,
+  offset the suffix positions, or use the wrong decoding model, in separate
+  runs. The test must fail in each case.
 \end{itemize}
 
 \subsection{Implementation Verification}
@@ -485,7 +488,9 @@ integration run from Rev~0.
   turned off, so the target model uses normal prefill.
   \item \textbf{Test trace}: a configuration option, used only with
   synthetic and public prompts, that adds each turn's rendered prompt token
-  IDs, full-vocabulary pre-softmax logits at specified decoding positions,
+  IDs, suffix token IDs and position IDs actually passed to the model,
+  the actual model and revision used for suffix prefill and decoding,
+  full-vocabulary pre-softmax logits at specified decoding positions,
   and reused/computed token counts to a restricted diagnostic record.
   Ordinary records exclude these diagnostic contents.
   \item \textbf{Native repeatability check}: before any accuracy test, the
@@ -594,9 +599,9 @@ and so on. Its turns include accented Latin letters, Chinese, Arabic, emoji,
 tabs, repeated spaces and the models' own chat delimiter strings as plain
 text.
 \item[Output] For each turn, the request record names the model the stub
-returned, at the pinned revision, and the test trace's prompt token IDs
-equal the native tokenization of the full history in that model's chat
-format.
+returned, at the pinned revision. The actual model used for suffix prefill
+and decoding matches that selection. The test trace's prompt token IDs
+equal the native tokenization of the full history in that model's chat format.
 \item[Derivation] FR-02 requires the router-selected model and the
 complete ordered prompt to be preserved; NFR-03 requires text to be
 preserved exactly.
@@ -653,17 +658,29 @@ is processed}
 \item[Input] 20 test-set prompts at 512 tokens, each sent as a history
 turn followed by its question as the next turn: (a) both turns to Qwen
 (same-model reuse); (b) the history to SmolLM and the question to Qwen
-(predicted cache).
+(predicted cache). Include a history whose source and target prefix token
+counts differ, and record both counts.
 \item[Output] In both cases the record of the question turn shows the
-history as reused and the computed target tokens equal to the question's
-token count (plus \cst{CANARY\_TOKENS} if the SR-10 check is enabled),
+history as reused. After validating the cached prefix, derive the expected
+suffix from the target model's tokenization of the full prompt. The actual
+suffix token IDs and position IDs match the native full-prompt trace after
+that prefix, and each suffix token is processed once in order. The accepted
+target-prefix length plus the suffix length equals the native prompt length.
+Computed target tokens equal the suffix length (plus \cst{CANARY\_TOKENS}
+if the SR-10 check is enabled); record the canary work separately. Suffix
+prefill and decoding use the router-selected model at its pinned revision,
 and generation completes. In (a), greedy output equals the native reference
 for \cst{GREEDY\_TOKENS} tokens.
 \item[Derivation] FR-16 requires prediction without target prefill over
-the history; FR-05 requires the suffix to be processed once. Same-model
+the history; FR-05 requires the suffix to be processed once and FR-02
+preserves the selected model. These checks cover HA H16 and F22. Same-model
 reuse is an exact oracle: loading the cache must not change the output, so
 any difference is a loading bug, not a translation error.
-\item[How performed] End-to-end test reading the request records.
+\item[How performed] End-to-end test comparing the actual model-call trace
+and request records with the full prompt tokenized independently using
+the pinned target tokenizer and chat template. Compare positions with
+native full-prompt processing. Count canary calls separately from suffix
+prefill calls.
 \end{testcase}
 
 \begin{testcase}{T-CACHE-3}{No token is dropped or repeated across turns}
@@ -674,7 +691,9 @@ cache left by the previous turn's answer.
 \item[Output] For each turn, the record's reused plus computed token
 counts equal the token count of the full history, including the last
 generated token of the previous answer, and greedy output equals the native
-reference for that turn.
+reference for that turn. At each turn, the actual suffix token IDs and
+positions match the native prompt after the accepted target prefix, as in
+\tref{T-CACHE-2}.
 \item[Derivation] The SRS reuse rules say no prompt token may be skipped or
 processed twice. Hugging Face \texttt{generate} returns a cache that does
 not include its final generated token, so this case must be handled
@@ -1046,7 +1065,7 @@ the last column.
 \toprule \textbf{Requirement} & \textbf{Tests} & \textbf{Also}\\\midrule
 \endhead
 FR-01 & \tref{T-IN-1} & \\
-FR-02 & \tref{T-IN-2} & \\
+FR-02 & \tref{T-IN-2}, \tref{T-CACHE-2} & \\
 FR-03 & \tref{T-IN-3}, \tref{T-IN-2} & \\
 FR-04 & \tref{T-CACHE-1} & Code walkthrough\\
 FR-05 & \tref{T-CACHE-2}, \tref{T-CACHE-3} & Code walkthrough\\

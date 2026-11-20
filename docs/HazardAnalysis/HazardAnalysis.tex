@@ -47,6 +47,8 @@
 \midrule
 Oct 19, 2026 & William Pol & First draft of all sections; see the
 disclosure appendix\\
+Nov 20, 2026 & Manav Patel & Add the suffix-processing hazard H16 and
+loader failure F22; link them to FR-02, FR-05 and the V\&V tests.\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -238,6 +240,9 @@ server. & \ref{loss:service}\\
 H15 & Predicting, checking and loading the cache takes longer than native
 prefill, so reuse slows the request instead of speeding it up. &
 \ref{loss:service}, \ref{loss:waste}\\
+H16 & After accepting a cache, the loader skips or repeats prompt tokens,
+uses wrong suffix positions, or decodes with a different model than the
+router chose. & \ref{loss:wrong}, \ref{loss:waste}\\
 \bottomrule
 \end{longtable}
 
@@ -389,6 +394,15 @@ fitted on & Reported accuracy higher than in real use & Data split done
 after fitting, or overlapping conversations & Check of the recorded data
 split (T-QUAL, T-REPORT) & Split conversations into fitting and held-out
 groups before fitting; report the split & FR-14, FR-12 & H11, H8\\
+F22 & KV loader & Wrong suffix boundary, positions or decoding model &
+Missing or repeated prompt content, wrong answers or wasted prefill work &
+Source-token length used for a target prefix; wrong join between prefix
+and suffix; stale model handle & Compare actual token IDs, positions,
+counts and model revision with native processing (T-IN-2, T-CACHE-2,
+T-CACHE-3) & After prefix validation, derive the suffix from the target
+tokenization of the full prompt. Check that the accepted target-prefix
+length plus suffix length equals full prompt length. Use the router-selected
+model and revision for suffix prefill and decoding & FR-02, FR-05 & H16\\
 \bottomrule
 \end{longtable}
 \end{landscape}
@@ -484,6 +498,9 @@ expires. \todo{choose a value}\\
   \item Add SR-09 to SR-14, their constants, and H8--H15 to the traceability
   table, which resolves open issue OI6. FR-16 should also trace to H8, H13
   and H15, not only H1 and H3.
+  \item Trace the existing FR-02 and FR-05 requirements to H16. F22 covers
+  how the loader joins an accepted prefix to the remaining prompt and
+  keeps the router-selected model.
   \item \textbf{NFR-05 conflicts with H8.} NFR-05 requires every reuse
   setup to match the native scores within \texttt{SCORE\_ATOL} and to
   produce identical greedy tokens. The \srs{} itself states that cache
@@ -503,12 +520,14 @@ the ones needed for a correct, safe single-server demonstration.
 
 \begin{table}[h]
 \centering
-\caption{Roadmap for the safety and security requirements}
+\caption{Roadmap for hazard mitigations}
 \label{tab:roadmap}
 \begin{tabularx}{\textwidth}{@{}p{0.27\textwidth}p{0.16\textwidth}X@{}}
 \toprule Requirements & When & Reason\\\midrule
 SR-01 to SR-08 & Capstone & Needed for any correct reuse; already in the
 \srs{}.\\
+FR-02, FR-05 & Capstone & Keep suffix tokens, positions and the selected
+model correct (H16).\\
 SR-09, SR-10 & Capstone & Cross-model prediction is approximate (H8), so
 quality checks are part of the core product.\\
 SR-11 (checksum and source) & Capstone & Cheap to build and detects
