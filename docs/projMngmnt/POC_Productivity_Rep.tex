@@ -167,25 +167,27 @@ which may not be reflected in the commit counts for the main branch.}
 
 \begin{table}[H]
 \centering
+\small
+\setlength{\tabcolsep}{1.25pt}
 \begin{tabular}{lllllll}
 \toprule
 \textbf{Student} & \textbf{Commits} & \textbf{Percent} & \textbf{Lines Added} &
 \textbf{Lines Deleted} & \textbf{Pull Requests}\\
 \midrule
-Total & Num & 100\% & total added & total deleted & total PRs\\
-Name 1 & Num & \% & num & num & num\\
-Name 2 & Num & \% & num & num & num\\
-Name 3 & Num & \% & num & num & num\\
-Name 4 & Num & \% & num & num & num\\
-Name 5 & Num & \% & num & num & num\\
+Total & 63 & 100\% & 22,852 & 5,722 & 36\\
+Justin Kwinecki & 34 & 53.97\% & 15,839 & 1,802 & 15\\
+Zayed Umer & 20 & 31.75\% & 3,609 & 3,104 & 13\\
+William Pol & 8 & 12.70\% & 2,368 & 706 & 4\\
+Manav Patel & 0 & 0.00\% & 0 & 0 & 2\\
+Musab Mondal & 1 & 1.59\% & 1,036 & 110 & 2\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\wss{If needed, an explanation for the counts can be provided here.  For
-instance, if a team member has more commits to unmerged branches, these numbers
-can be provided here.  If multiple people contribute to a commit, git allows for
-multi-author commits.}
+As of November 20, 2026, the commit counts include all student-authored commits
+in the history of \texttt{main} through \texttt{a2907c7}, including merges.
+Line counts sum text additions and deletions in non-merge commits.
+Pull requests are counted by author across all states, including unmerged requests.
 
 \section{Issue Tracker}
 
@@ -199,16 +201,17 @@ issues (C only)) over the time period of interest.}
 \toprule
 \textbf{Student} & \textbf{Authored (O+C)} & \textbf{Assigned (C only)}\\
 \midrule
-Name 1 & Num & Num \\
-Name 2 & Num & Num \\
-Name 3 & Num & Num \\
-Name 4 & Num & Num \\
-Name 5 & Num & Num \\
+Justin Kwinecki & 17 & 10\\
+Zayed Umer & 12 & 4\\
+William Pol & 6 & 3\\
+Manav Patel & 0 & 2\\
+Musab Mondal & 0 & 0\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\wss{If needed, an explanation for the counts can be provided here.}
+Counts are as of November 20, 2026. A closed issue with multiple assignees
+counts once for each assignee.
 
 \section{CICD via GitHub Actions}
 
@@ -236,16 +239,31 @@ triggers, if they are found to be too weak, strong or ambiguous.}
 
 \section{Additional Productivity Metrics}
 
-\wss{If your team has additional metrics of productivity, please feel free to
-add them to this report.  If not, please explicitly state that there are no additional
-metrics.}
+Across the team's 36 pull requests through November 20, 2026, the table counts
+each student's activity on PRs opened by someone else. Each PR counts once per
+student under Participated if the student submitted a review or posted a comment,
+and once under Approved if the student submitted an approving review.
 
-\wss{Additional metrics can include things like code reviews done, pull requests
-created, count of joining meetings late, count of number of times contributions
-had to be corrected, number of internal deadlines missed, test cases written, etc.}
+\begin{table}[H]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrrrrr}
+\toprule
+& \multicolumn{2}{c}{Distinct PRs} & \multicolumn{3}{c}{Comments posted}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-6}
+Student & Participated & Approved & Discussion & Inline & Summary\\
+\midrule
+Justin Kwinecki & 7 & 4 & 6 & 0 & 2\\
+Zayed Umer & 5 & 3 & 6 & 2 & 3\\
+William Pol & 7 & 5 & 2 & 0 & 2\\
+Manav Patel & 0 & 0 & 0 & 0 & 0\\
+Musab Mondal & 1 & 0 & 1 & 0 & 0\\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\wss{We are looking for data on these metrics, not just a list of additional
-metrics the team is planning on tracking.  However, if all you have is a plan,
-please share it here.}
+Discussion comments are posted directly to the PR conversation. Inline comments
+are attached to code, and a summary is the written message submitted with a review.
 
 \end{document}
