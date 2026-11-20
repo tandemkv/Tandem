@@ -10,6 +10,7 @@ from judge import annotate, parse_verdict, validate, validation_pairs
 from mapper import align, translate
 from metrics import compare, entities, summarize
 from semantic import score_answers
+from train_keys import attention
 
 
 class KVTranslationTests(unittest.TestCase):
@@ -98,6 +99,16 @@ class KVTranslationTests(unittest.TestCase):
         self.assertTrue(translated.eq(0).all())
         with self.assertRaises(ValueError):
             with_native(1, translated, torch.ones(2, 2, 4, 2))
+
+    def test_key_fit_attention_is_causal_and_grouped(self):
+        q, k = torch.randn(1, 4, 2, 8), torch.randn(1, 2, 5, 8)
+        log = attention(q, k)  # Queries sit at the last two of five positions.
+        self.assertEqual(log.shape, (1, 4, 2, 5))
+        self.assertTrue(log.exp().sum(-1).allclose(torch.ones(1, 4, 2)))
+        self.assertEqual(log[..., 0, 4].exp().max().item(), 0)
+        expected = (q[0, 1] @ k[0, 0].T / 8 ** 0.5).masked_fill(torch.tensor([[0, 0, 0, 0, 1], [0] * 5]).bool(),
+                                                               -1e9).log_softmax(-1)
+        self.assertTrue(log[0, 1].allclose(expected))
 
 
 if __name__ == '__main__':
