@@ -438,8 +438,10 @@ largest community and documentation. The cost is a large codebase to learn;
 SGLang~\cite{Zheng2024SGLang} is the alternative if vLLM's design gets in
 the way.\\
 Models & SmolLM2-360M-Instruct and Qwen2.5-0.5B-Instruct, existing
-open-weight models that are not retrained. The translator between them is
-trained by the team.\\
+open-weight models that are not retrained. They come from different model
+families, with different tokenizers and cache layouts, so they test
+cross-family translation, and both fit on one GPU~\cite{TandemMLReport}.
+The translator between them is trained by the team.\\
 Linter / formatter & \texttt{ruff} (lint and format), run in CI.\\
 Unit tests & \texttt{pytest}, for the router, classifier, runner and
 translator.\\
