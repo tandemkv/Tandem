@@ -1,76 +1,63 @@
-"""Prompt -> model choice, by task classification or prompt complexity."""
-from functools import lru_cache
+"""Prompt -> model alias, using a supplied classifier and routing policy."""
+from collections.abc import Mapping
+import logging
 import math
 
-# Experimental policy; calibrate against measured target-model performance.
-TASK_MODELS = {
-    "Brainstorming": "smollm",
-    "Chatbot": "smollm",
-    "Classification": "smollm",
-    "Closed QA": "smollm",
-    "Code Generation": "qwen",
-    "Extraction": "smollm",
-    "Open QA": "qwen",
-    "Other": "qwen",
-    "Rewrite": "smollm",
-    "Summarization": "smollm",
-    "Text Generation": "smollm",
-    "Unknown": "qwen",
-}
+from src.routing.interfaces import ClassificationResult, Classifier
 
 
-@lru_cache(maxsize=1)
-def _classifier():
-    # Import and model loading happen only on the first valid request.
-    if __package__:
-        from .classifier import PromptClassifier
-    else:
-        from classifier import PromptClassifier
-    return PromptClassifier()
-
-
-def analyze(prompt: str) -> dict:
-    """Return task, task confidence, complexity and its component scores."""
+def _validate_prompt(prompt):
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must be nonempty text")
-    return _classifier()(prompt)
 
 
-def route(prompt: str, mode: str = "task", *, threshold: float = 0.5) -> str:
-    """Return 'qwen' or 'smollm'; never load or call either target model.
+def analyze(prompt: str, *, classifier_model: Classifier) -> ClassificationResult:
+    """Return the supplied classifier's predictions without loading a model."""
+    _validate_prompt(prompt)
+    return classifier_model(prompt)
 
-    task: map NVIDIA's predicted task label through TASK_MODELS.
-    complexity: choose qwen at or above threshold, otherwise smollm.
-    threshold applies only to complexity mode. Both modes use one cached model.
-    """
+
+def validate_configuration(*, mode, threshold, task_models, model_a="model_a", model_b="model_b"):
+    """Validate routing settings before constructing a runner or invoking a classifier."""
     if mode not in ("task", "complexity"):
         raise ValueError("mode must be 'task' or 'complexity'")
+    if mode == "task" and task_models is None:
+        raise ValueError("task_models is required for task routing")
+    if task_models is not None:
+        if not isinstance(task_models, Mapping):
+            raise TypeError("task_models must be a mapping of task labels to model aliases")
+        for task, alias in task_models.items():
+            if not isinstance(task, str) or not task.strip():
+                raise ValueError("task_models labels must be nonempty strings")
+            if alias not in (model_a, model_b):
+                raise ValueError(f"unknown model {alias!r}; choose from {model_a}, {model_b}")
     if mode == "complexity" and (
         not isinstance(threshold, (int, float)) or isinstance(threshold, bool)
-        or not math.isfinite(threshold) or not 0 <= threshold <= 1.2
+        or not math.isfinite(threshold)
     ):
-        raise ValueError("threshold must be a finite number between 0 and 1.2")
-    result = analyze(prompt)
-    if mode == "task":
-        return TASK_MODELS[result["task"]]
-    return "qwen" if result["complexity"] >= threshold else "smollm"
+        raise ValueError("threshold must be a finite number on the classifier's score scale")
 
 
-def main(argv=None):
-    import argparse
+def route(prompt: str, mode: str = "task", *, classifier_model: Classifier,
+          threshold: float = 0.5, task_models: Mapping[str, str] | None = None,
+          model_a: str = "model_a", model_b: str = "model_b") -> str:
+    """Return an answer-model alias without loading or calling an answer model.
 
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("prompt")
-    parser.add_argument("--mode", choices=("task", "complexity"), default="task")
-    parser.add_argument("--threshold", type=float, default=0.5,
-                        help="Complexity cutoff (default: 0.5; ignored in task mode)")
-    args = parser.parse_args(argv)
+    Task mode requires an explicit task-label-to-alias mapping. Complexity mode
+    selects model_a at or above threshold, otherwise model_b. The threshold uses
+    the supplied classifier's score scale. Classifier failures fall back to
+    model_a; invalid configuration or missing prediction fields raise errors.
+    """
+    validate_configuration(mode=mode, threshold=threshold, task_models=task_models,
+                           model_a=model_a, model_b=model_b)
+    if not callable(classifier_model):
+        raise TypeError("classifier_model must be callable")
+    _validate_prompt(prompt)
     try:
-        print(route(args.prompt, mode=args.mode, threshold=args.threshold))
-    except ValueError as error:
-        parser.error(str(error))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+        result = analyze(prompt, classifier_model=classifier_model)
+    except Exception:
+        logging.warning("Classifier failed; falling back to %s", model_a, exc_info=True)
+        return model_a
+    if mode == "task":
+        return task_models[result["task"]]
+    return model_a if result["complexity"] >= threshold else model_b

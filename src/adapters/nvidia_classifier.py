@@ -12,6 +12,8 @@ from huggingface_hub import hf_hub_download
 from safetensors.torch import load_model
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
+from src.routing.interfaces import ClassificationResult
+
 MODEL = "nvidia/prompt-task-and-complexity-classifier"
 REVISION = "fea1121511eafabaf7dd6fc66863dcb04f74defb"
 BACKBONE = "microsoft/deberta-v3-base"
@@ -46,7 +48,7 @@ class _Network(nn.Module):
                 for index, target in enumerate(self.targets)}
 
 
-def decode(logits, config):
+def decode(logits, config) -> ClassificationResult:
     """Apply the publisher's class weights, normalization and rounding."""
     probabilities = logits["task_type"].softmax(-1)
     task_id = int(probabilities.argmax())
@@ -79,6 +81,6 @@ class PromptClassifier:
         self.model.eval()
 
     @torch.inference_mode()
-    def __call__(self, prompt):
+    def __call__(self, prompt: str) -> ClassificationResult:
         tokens = self.tokenizer(prompt, truncation=True, max_length=512, return_tensors="pt")
         return decode(self.model(tokens), self.config)
