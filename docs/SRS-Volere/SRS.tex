@@ -456,7 +456,7 @@ retain the full prompt and derive the suffix after prefix validation.
 \texttt{latest\_message} & Text or role/message & New turn in the target conversation format.\\
 \texttt{model\_id} & Known name and exact version & Router-selected target; fixed during replay.\\
 \texttt{settings} & Supported generation controls & Output cap, sampling, stops, optional seed; record defaults.\\
-\texttt{reuse\_domain} & Host-assigned group ID & Sharing permission; requests cannot self-authorize.\\
+\texttt{reuse\_domain} & Host-assigned group ID & Sharing permission; unique per conversation by default, and shared only when the host explicitly enables it. Requests cannot self-authorize.\\
 \texttt{source\_kv} & Optional engine cache reference & Source keys/values for the covered prefix.\\
 \texttt{predictor} & Versioned supported mapping & Model pair, method, parameters/checkpoint and alignment.\\
 \texttt{candidate} & Optional predicted KV reference & Target KV awaiting validation.\\
@@ -879,7 +879,8 @@ Each tested release shall record the hardware, software and commands needed to r
 Use the existing serving interface, router-selected target model and
 engine-managed source KV reference; load validated predicted target KV through
 the engine integration. The Data Dictionary defines these fields, and the
-application assigns user identity and sharing permissions.
+application assigns user identity and reuse domains. It gives each conversation
+its own domain unless the host explicitly enables sharing.
 
 
 \subsection{Productization Requirements}

@@ -961,26 +961,29 @@ FR-12. The second is marked invalid, naming the differing setting.
 
 \subsubsection{Isolation and Privacy}
 
-These tests cover sharing between users (SR-01, SR-04, SR-12), stale caches
-(SR-05) and logs (SR-06), from SRS Section~15.3 and HA Section~7.
+These tests cover sharing between users (SR-01 and SR-04), the default
+reuse-domain policy (SR-12), stale caches (SR-05) and logs (SR-06), from SRS
+Section~15.3 and HA Section~7. SR-12 does not claim to hide timing inside a
+shared domain; that residual risk is checked by documentation review.
 
-\begin{testcase}{T-ISOLATION-1}{No reuse across sharing groups}
+\begin{testcase}{T-ISOLATION-1}{No reuse outside a host-assigned domain}
 \item[Control] Automatic
-\item[Initial state] Setup S with two reuse domains assigned by the host,
-\texttt{domain-A} and \texttt{domain-B}, given in each request's domain
-field. History H is fixture F1 at the shortest length in
-\cst{CONTEXT\_LENGTHS}, with the code placed early. Its first turn is sent
-in \texttt{domain-A} and answered by SmolLM, so a predicted Qwen cache for
-H is stored under \texttt{domain-A}.
-\item[Input] (1) A follow-up turn on H routed to Qwen in
-\texttt{domain-B}. (2) The same follow-up in \texttt{domain-A}. (3) A
-follow-up in \texttt{domain-B} whose request body also names
-\texttt{domain-A}.
+\item[Initial state] Setup S. History H is fixture F1 at the shortest
+length in \cst{CONTEXT\_LENGTHS}, with the code placed early. Its first turn
+is sent in conversation C1, on its default domain, and answered by SmolLM, so
+a predicted Qwen cache for H is stored under C1's domain. The host assigns
+conversations C3 and C4 to the shared domain \texttt{domain-A}, and H's first
+turn is sent in C3 the same way.
+\item[Input] (1) A follow-up turn on H routed to Qwen in a new conversation
+C2, on its default domain. (2) The same follow-up in C1. (3) The same
+follow-up in C4. (4) The same follow-up in C2 with a request field that
+names \texttt{domain-A}, without host permission.
 \item[Output] (1) Native prefill, with reason \texttt{no\_permission}.
-(2) The predicted cache is reused. (3) Native prefill, with reason
-\texttt{no\_permission}; the domain named in the request body is ignored.
-\item[Derivation] SR-01 and SR-12: sharing is decided by the host, never by
-the request.
+(2) The predicted cache is reused. (3) C3's predicted cache is reused.
+(4) Native prefill, with reason \texttt{no\_permission}; the domain named in
+the request is ignored.
+\item[Derivation] SR-01 and SR-12: each conversation is isolated by default,
+and only the host can opt conversations into sharing, never the request.
 \item[How performed] End-to-end test.
 \end{testcase}
 
@@ -1225,7 +1228,7 @@ SR-06 & \tref{T-ISOLATION-3} & \\
 SR-09 (HA) & \tref{T-QUAL-2}, \tref{T-CONF-1} & \\
 SR-10 (HA) & \tref{T-FB-3}, \tref{T-PERF-1} & \\
 SR-11 (HA) & \tref{T-CACHE-1} & \\
-SR-12 (HA) & \tref{T-ISOLATION-1} & Documentation review\\
+SR-12 (HA) & \tref{T-ISOLATION-1} & Review of the shared-domain timing-risk statement\\
 SR-13 (HA) & \tref{T-PERF-2} & \\
 SR-14 (HA) & \tref{T-LIFE-2} & \\
 DR-01 & \tref{T-DOC-1} & Checklist review\\
