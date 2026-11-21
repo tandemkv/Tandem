@@ -32,6 +32,9 @@ and rubric; added PoC risks, workflow details, role rotation plan, and
 course schedule\\
 Sept 28, 2026 & William Pol & Addressed pull request review; completed
 the team charter and reflection\\
+Nov 2026 & William Pol & Updated for cross-model KV cache translation:
+terms, technical areas, schedule, PoC plan and technology; meetings after
+TA and supervisor meetings; reflection questions restored\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -63,18 +66,26 @@ document. Each acronym is also spelled out where it is first used.
 \textbf{Term} & \textbf{Meaning}\\
 \midrule
 LLM & Large language model.\\
+Semantic routing & Choosing which model answers a request based on what
+the request asks for.\\
 Prefill & The first phase of LLM inference, in which the model processes
 the whole prompt at once.\\
 Decode & The phase after prefill, in which the model generates output one
 token at a time.\\
 KV cache & The keys and values computed for each prompt token during
 prefill, stored so they do not have to be recomputed during decode.\\
-Trunk & The part of a prompt shared by several agents (for example, a
-document all agents read).\\
-Branch & The part of a prompt specific to one agent (its instructions).\\
-Tree attention mask & An attention mask that lets several branches share
-one trunk in a single forward pass while never seeing each other.\\
-vLLM & An open-source LLM serving engine that Tandem will extend.\\
+TTFT & Time to first token: the time from receiving a request to producing
+the first output token.\\
+Source / target model & On a model switch, the model that built the
+existing KV cache, and the model that answers next.\\
+Translator & A small trained model that turns the source model's KV cache
+into a KV cache the target model can use.\\
+Paired KV data & KV caches that both models produce for the same text,
+used to train and evaluate the translator.\\
+Fallback & Running the target model's normal prefill when a translated
+cache is unavailable or rejected.\\
+vLLM & An open-source LLM serving engine that Tandem will integrate with
+after the PoC.\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -82,14 +93,15 @@ vLLM & An open-source LLM serving engine that Tandem will extend.\\
 \section{Confidential Information?}
 
 This project does not involve any confidential information from industry.
-The team does not have an industry supervisor, so there is no
+The team's supervisor, Manoj Govindassamy, is from industry (Cohere), but
+the project uses no confidential information from Cohere, so there is no
 non-disclosure agreement (NDA) or other confidentiality agreement in place.
 
 \section{IP to Protect}
 
 There is no intellectual property (IP) to protect. \progname{} is an
-open-source systems project that extends existing open-source large
-language model (LLM) inference engines, with no industry sponsor, so no IP
+open-source systems project that builds on existing open-source large
+language models (LLMs) and inference libraries, with no industry sponsor, so no IP
 agreement or
 Intellectual Property Guide Acknowledgement is required.
 
@@ -101,46 +113,36 @@ of the \href{https://github.com/jjustin-k/Tandem}{project repository}.
 
 \section{Team Meeting Plan}
 
-\paragraph{When and where.} The team meets once a week for up to one hour,
-on Mondays from 6:00 to 7:00 pm, separate from the Wednesday TA-team
-meeting slot. Meetings alternate between in person on campus
-and online through a Microsoft Teams call, so that at least every second
-meeting is in person. Physical meeting locations are shared in the team
+\paragraph{When and where.} The team meets immediately after each TA
+meeting and each supervisor meeting, to catch up on work and work through
+blockers. A meeting after a TA meeting is in person on campus, with the
+members who attended the TA meeting. Supervisor meetings, and the team
+meetings after them, are online through Google Meet. Physical meeting locations are shared in the team
 chat, not in this public repository. When a lecture or tutorial slot has
 nothing scheduled, the team uses it as an extra working session. In the
-week before a deliverable is due, the team adds a second short check-in.
+week before a deliverable is due, the team adds a short check-in.
 
-\paragraph{Agenda and minutes.} Every team meeting has a GitHub issue,
-created from the \texttt{Team Meeting} issue template at least 24 hours
-beforehand. The chair writes the agenda in the issue. The standing agenda
-is:
-\begin{enumerate}[noitemsep]
-  \item Review action items from the last meeting.
-  \item Blockers: anything stopping someone's work.
-  \item Status of the next deliverable and the checklist items it still
-  needs.
-  \item Decisions needed this week.
-  \item New action items, each with one owner and a due date.
-\end{enumerate}
-During the meeting Granola records notes and a summary automatically; the
-chair ticks off attendance in the issue and turns that summary into
-decisions and action items as comments. Every action item becomes its own
-issue, assigned to its owner, and the meeting issue is closed once those
-issues exist.
+\paragraph{Agenda and minutes.} A team meeting has no issue of its own,
+since it is part of the TA or supervisor meeting it follows. That meeting's
+GitHub issue, created from the \texttt{TA Meeting} or \texttt{Supervisor
+Meeting} issue template, holds the agenda and the attendance. During the
+meeting Granola records notes and a summary automatically; the chair adds
+Granola's notes to the issue as a comment, with the decisions and action
+items from both the TA or supervisor meeting and the team meeting. Every
+action item becomes its own issue, assigned to its owner, and the meeting
+issue is closed once those issues exist.
 
-\paragraph{Chair.} The chair rotates weekly in alphabetical order by last
-name. This gives every member the chair role several times each term.
+\paragraph{Chair.} William Pol chairs the team meetings.
 
-\paragraph{Supervisor meetings.} We do not yet have a supervisor; the team
-is contacting potential advisors, who do not need to be at McMaster. Once
-one is confirmed, we plan to meet every two weeks on Microsoft Teams,
-tracked with the \texttt{Supervisor Meeting} issue template.
+\paragraph{Supervisor meetings.} The team's supervisor is Manoj
+Govindassamy (Cohere). The team meets with him once a month on Google
+Meet, tracked with the \texttt{Supervisor Meeting} issue template.
 
 \section{Team Communication Plan}
 
 \begin{itemize}
-  \item \textbf{Microsoft Teams} is for day-to-day discussion, quick
-  questions, and online meetings. Members are expected to reply to
+  \item \textbf{Microsoft Teams} is for day-to-day discussion and quick
+  questions; online meetings use Google Meet. Members are expected to reply to
   messages that mention them within 24 hours on weekdays. Anything urgent
   (for example, a broken build close to a deadline) is posted with an
   @-mention of the people needed.
@@ -176,8 +178,7 @@ Table~\ref{TblProjectRoles} lists the roles that keep the team running.
 Liaison & Point of contact with the instructor and TA. Justin Kwinecki,
 for the whole year.\\
 Meeting chair & Writes the agenda, runs the meeting, ticks off attendance,
-and turns Granola's notes into decisions and action items. Rotates
-weekly.\\
+and turns Granola's notes into decisions and action items. William Pol.\\
 Reviewer & Reviews a pull request before it is merged. Anyone except the
 author; the author requests a reviewer from outside their technical area
 at least once a week, to spread knowledge.\\
@@ -204,31 +205,36 @@ lead.
 \toprule
 \textbf{Area} & \textbf{What it covers}\\
 \midrule
-Core mechanism & The tree attention mask, its correctness tests, and
-making it run fast on graphics processing units (GPUs).\\
-Serving engine & Changes to vLLM: shared memory for trunks, scheduling,
-and the KV-Promise mechanism, which lets a late request wait for a shared
-key-value (KV) cache that is still being computed.\\
-Measurement and tooling & Benchmarks and experiments, access to the
-department GPU clusters, the Python environment, and continuous
-integration (CI).\\
+Translator and data & Generating paired KV data from both models,
+training the translator, and evaluating it against native prefill.\\
+Router and runner & The prompt classifier and routing policy, the
+inference runner, and handing a translated cache to the target model.\\
+Serving integration and measurement & Integration with vLLM, benchmarks
+and experiments, access to the department GPU clusters, the Python
+environment, and continuous integration (CI).\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\paragraph{How technical areas are assigned.} Until the PoC demonstration in
-November, technical areas are not assigned. No one on the team has prior
-GPU-serving experience, so every member first works on the PoC (the vLLM
-measurement and the tree attention mask tests). This gives everyone a
-shared understanding of the core mechanism and shows who is drawn to which
-area. At the first team meeting after the PoC demo, each area is given a
-primary owner and one or two backups, based on interest and what members
-learned during the PoC. Every member works in at least one area, and every
-area has at least two people who understand it.
+\paragraph{How technical areas are assigned.} Before the PoC, every
+member worked on the PoC so that everyone learned how the models, their KV
+caches and the translator fit together. The areas are now owned as
+follows:
+\begin{itemize}[noitemsep]
+  \item Translator and data: Zayed Umer (training and evaluation) and
+  Musab Mondal (the runtime adapter that applies the translator).
+  \item Router and runner: Justin Kwinecki (the runner and the demo) and
+  Manav Patel (choosing the translator in the runner).
+  \item Documentation and design: William Pol, with the deliverable lead
+  for each document.
+\end{itemize}
+Serving integration and measurement starts after the PoC; its owner is
+chosen at the first team meeting after the PoC demo. Every area has at
+least two people who understand it.
 
 \paragraph{Changing roles.} Roles are reviewed at the first team meeting
 after each major demo (PoC, Rev 0). Any member can also ask to change areas
-at a weekly meeting. When an area changes hands, the outgoing owner writes
+at a team meeting. When an area changes hands, the outgoing owner writes
 a short handover issue (current state, open problems, where the code is)
 and pairs with the new owner for one week.
 
@@ -275,16 +281,16 @@ lets the team compare later work against it.
 \subsection{Issues}
 
 \begin{itemize}
-  \item Every piece of work, bug, research question, and meeting is an
-  issue. The repository already has issue templates for team meetings, TA
+  \item Every piece of work, bug, research question, and TA or supervisor
+  meeting is an issue. The repository already has issue templates for team meetings, TA
   meetings, supervisor meetings, lectures, and peer reviews.
   \item Each issue gets one \emph{type} label and, for code, one
   \emph{area} label:
   \begin{itemize}[noitemsep]
     \item Type: \texttt{bug}, \texttt{enhancement}, \texttt{documentation},
     \texttt{research}, \texttt{meeting}, \texttt{review}, \texttt{question}.
-    \item Area: \texttt{area:core}, \texttt{area:engine},
-    \texttt{area:measurement}.
+    \item Area: one per technical area: translator and data, router and
+    runner, and serving integration and measurement.
   \end{itemize}
   \item Each issue has one assignee and belongs to a milestone. There is
   one milestone per course deliverable, with the deliverable's due date.
@@ -301,11 +307,9 @@ lets the team compare later work against it.
   document, commits the PDFs to \texttt{pdfs/}, and publishes them to the
   project's GitHub Pages site.
   \item \textbf{Code (added with the first code PR):} a second workflow
-  runs the linter and the unit tests on every PR. This workflow includes the
-  tree
-  attention correctness test with a small model on the central processing
-  unit (CPU), so a change that
-  breaks the mask fails CI before it is merged.
+  runs the linter and the unit tests on every PR, including the existing
+  router, classifier and runner tests in \texttt{test/}, on the central
+  processing unit (CPU). This workflow is not set up yet.
   \item \textbf{GPU work:} GitHub's CI machines have no GPU, so GPU tests
   and benchmarks are run by hand on the department clusters, and their
   results are committed to the repository with the command used to produce
@@ -317,7 +321,7 @@ lets the team compare later work against it.
 The team uses a GitHub Project board,
 \href{https://github.com/users/jjustin-k/projects/11}{Tandem Kanban}, with
 the columns Backlog, Ready, In Progress, In Review, and Done. Every issue is
-on the board, and the board is reviewed during each weekly meeting.
+on the board, and the board is reviewed at each team meeting.
 
 Table~\ref{TblSchedule} combines the course deadlines with our technical
 milestones. Dates for Term 1 are from the course's weekly announcements;
@@ -339,19 +343,18 @@ Week 8 & Design Document Rev $-1$ and Fall custom document (machine
 learning (ML) model report); PoC productivity report\\
 Mid--late Nov & \textbf{PoC demonstration}\\
 \midrule
-Sept--Nov & \emph{PoC work: measure the gap in unmodified vLLM on a
-department cluster; tree attention mask in PyTorch and its correctness
-tests; read related work~\cite{Juravsky2024Hydragen,
-Yao2025DeFT,
-Ye2025FlashInfer} to sharpen the novelty claim}\\
-Dec--Jan & \emph{Fast tree attention (FlexAttention); vLLM integration of
-shared trunk memory and per-branch position IDs}\\
+Sept--Nov & \emph{PoC work, each item due by Nov 24, the day before the
+demo: paired KV dataset and the SmolLM to Qwen translator (Zayed Umer);
+inference runner and demo (Justin Kwinecki); translator runtime adapter
+(Musab Mondal); translator choice in the runner (Manav Patel); end-to-end
+check of the translated handoff (owner to be assigned)}\\
+Dec--Jan & \emph{Qwen to SmolLM translator; vLLM integration}\\
 \midrule
 Jan (Week 16) & Design Document Rev 0; module implementation\\
 Feb (Weeks 18--19) & \textbf{Rev 0 demonstration}\\
 \midrule
-Feb--Mar & \emph{KV-Promise for staggered requests; benchmarks against vLLM
-on the department GPU clusters}\\
+Feb--Mar & \emph{Serving benchmarks against native prefill on the
+department GPU clusters}\\
 \midrule
 Mar & V\&V Report and Winter custom document (Performance Report)\\
 Late Mar & \textbf{Final demonstration}\\
@@ -363,92 +366,54 @@ Apr & Final documentation, Capstone EXPO poster and video, EXPO\\
 \section{Proof of Concept Demonstration Plan}
 \label{sec:poc}
 
-The PoC demonstration tests the two things Tandem's thesis depends on:
-that the problem is real in today's serving engines, and that our core
-mechanism is correct. It does not build the fix inside vLLM; that is the
-work planned after the PoC.
+The PoC demonstration tests whether one model's KV cache can be
+translated for another model well enough, and fast enough, to replace the
+target model's prefill after a model switch. It runs on Hugging Face
+Transformers; integration with vLLM is the work planned after the PoC.
 
 \subsection{Risks}
 
 The PoC is planned around the risks most likely to stop the project:
 
 \begin{enumerate}
-  \item \textbf{The problem may already be solved (thesis risk).} Tandem
-  assumes that when several agents with the same long shared context
-  (trunk) arrive at a serving engine at the same time, the engine
-  processes the trunk once per agent, because its prefix cache is still
-  empty. If current versions of vLLM already avoid this, most of the
-  project's benefit disappears.
-  \item \textbf{Correctness of the core mechanism.} Tandem depends on
-  evaluating a shared trunk and several branches in one forward pass with a
-  tree attention mask, and getting \emph{exactly} the same result as running
-  each branch on its own. If a branch can see another branch, or tokens
-  after itself, or gets the wrong positions, the results are silently wrong
-  and nothing built on top can be trusted.
-  \item \textbf{Learning curve and hardware access.} No team member has
-  worked on an LLM serving engine before, vLLM is a large codebase, and
-  realistic measurements need GPUs on the department clusters, which the
-  team has not yet used.
+  \item \textbf{Translation quality.} A translated cache may not keep
+  enough of the conversation for the target model to answer as it would
+  after native prefill.
+  \item \textbf{Training data.} Training the translator needs enough paired
+  KV caches, produced by both models on the same text.
+  \item \textbf{Net speed.} Translating, checking and loading a cache may
+  take longer than native prefill, which would remove the benefit.
 \end{enumerate}
 
 \subsection{What the Demonstration Will Show}
 
+The source model is SmolLM2-360M-Instruct and the target model is
+Qwen2.5-0.5B-Instruct.
+
 \begin{itemize}
-  \item \textbf{Risk 1: measuring the gap in unmodified vLLM.} We run the
-  current release of vLLM, with prefix caching turned on, on a department
-  GPU cluster. A script sends $K$ requests that share one trunk and differ
-  only in a short agent-specific branch, in three scenarios:
-  \begin{enumerate}[noitemsep]
-    \item \emph{Simultaneous arrival:} all $K$ requests are sent at once,
-    with nothing cached.
-    \item \emph{Warm cache:} the trunk is processed once first, then the
-    $K$ requests are sent.
-    \item \emph{Staggered arrival:} the requests arrive a few milliseconds
-    apart.
-  \end{enumerate}
-  For each scenario, and for several values of $K$ and trunk length, we
-  report the time to first token (TTFT) and the number of prompt tokens
-  vLLM actually processed (taken from its metrics, not estimated). Since
-  vLLM's paged KV cache uses a fixed number of bytes per token, prompt
-  tokens processed is also a direct stand-in for KV cache memory: fewer
-  tokens computed means less KV cache memory allocated. If simultaneous
-  arrival processes close to $K$ copies of the trunk while the warm cache
-  processes one, the gap Tandem targets is real, and the difference
-  between the two scenarios is the most Tandem can save. Reporting actual
-  GPU memory usage and KV cache read/write throughput directly, rather
-  than deriving them from token counts, is a backlog item for later
-  benchmarking once the measurement moves past this PoC scale.
-  \item \textbf{Risk 2: tree attention correctness.} A PyTorch program
-  packs a shared trunk and several branches into one sequence, builds the
-  tree attention mask and per-branch position IDs, runs one forward pass,
-  and compares every branch's output scores (logits) against running that
-  branch alone. The comparison covers the next token and several generated
-  tokens, and must match to within floating-point rounding. The mask is
-  printed so the structure can be checked by eye.
-  \item \textbf{Risk 3: learning curve and hardware.} Running and measuring
-  vLLM for Risk~1 requires installing it on a department cluster and
-  reading enough of its scheduler and cache code to explain the result.
-  The team will also present a short plan for the vLLM changes (which
-  parts of the engine change, and why), showing that we understand where
-  the work lies.
+  \item \textbf{Risk 1: translation quality.} Within a conversation, the
+  router switches models and the target model continues from the
+  translated cache. For the same prompts, it is compared with the target
+  model after native prefill by first-token agreement, the length of the
+  matching generated prefix, and answer F1 score.
+  \item \textbf{Risk 2: training data.} The paired KV dataset built from
+  HotpotQA passages and questions, and the trained SmolLM to Qwen
+  translator with its development results, which are reported in the ML
+  model report.
+  \item \textbf{Risk 3: net speed.} TTFT against context length for the
+  translated path, including translation and checking time, against native
+  prefill, with peak GPU memory for both.
+  \item Unsupported or rejected caches fall back to native prefill.
 \end{itemize}
 
 \subsection{If the PoC Fails}
 
-If the Risk~1 measurement shows that vLLM already avoids most of the
-repeated work, the team will review the thesis with the TA before building
-anything, for example by focusing on the single-pass tree prefill alone.
-If the tree attention mask cannot be made correct, or its overhead removes
-any benefit, our fallback is to narrow the scope
-to an \emph{observability} tool: instrumenting an existing serving engine
-to detect and report repeated prefill work across concurrent multi-agent
-requests, without necessarily removing it. This stays in the same problem
-area, so work done before the PoC is not wasted. If that also proves too
-ambitious, we would narrow further, for example to offline analysis of
-recorded multi-agent prompts. This fallback was discussed with the
-instructor during project approval, who agreed it is a sufficient exit
-strategy; the exact rescoping would be decided with the TA after the PoC
-demonstration.
+If translated caches do not stay close to native prefill, or are not faster
+than it, the team will narrow the project to reusing a model's own cache
+across turns and measuring the cost of model switches. This stays in the
+same problem area, and the router, runner and benchmark work carries over,
+so work done before the PoC is not wasted. The exact rescoping would be
+decided with the TA after the PoC demonstration.
 
 \section{Expected Technology}
 
@@ -467,21 +432,17 @@ turns out to be necessary.\\
 Model framework & PyTorch and Hugging Face Transformers: the standard
 tools for loading open models and inspecting their internals, which the
 PoC needs.\\
-Serving engine & vLLM~\cite{Kwon2023vLLM}, extended rather than
-rewritten. vLLM has the largest community and documentation, and its paged
-memory with copy-on-write is
-the base we build on. The cost is a large codebase to learn;
-SGLang~\cite{Zheng2024SGLang} is the
-alternative if vLLM's design gets in the way.\\
-Fast attention & PyTorch FlexAttention first (tree mask as a small
-function, compiled into a fast kernel), then splitting attention into a
-shared-trunk part and a per-branch part using existing kernels.
-Hand-written CUDA only as a last resort.\\
-Models & Existing open-weight models; no training. Qwen2.5-0.5B for tests
-(fast on a laptop CPU), larger Llama/Qwen models for benchmarks.\\
+Serving engine & Hugging Face Transformers for the PoC, then
+vLLM~\cite{Kwon2023vLLM}, integrated rather than rewritten. vLLM has the
+largest community and documentation. The cost is a large codebase to learn;
+SGLang~\cite{Zheng2024SGLang} is the alternative if vLLM's design gets in
+the way.\\
+Models & SmolLM2-360M-Instruct and Qwen2.5-0.5B-Instruct, existing
+open-weight models that are not retrained. The translator between them is
+trained by the team.\\
 Linter / formatter & \texttt{ruff} (lint and format), run in CI.\\
-Unit tests & \texttt{pytest}. The core test compares tree-pass outputs
-against separate runs.\\
+Unit tests & \texttt{pytest}, for the router, classifier, runner and
+translator.\\
 Code coverage & \texttt{coverage.py} through \texttt{pytest-cov}, reported
 in CI; no target until the codebase exists.\\
 CI & GitHub Actions for documents (running) and code (planned).\\
@@ -497,7 +458,8 @@ team keeps is moved into regular Python files with tests.\\
 Google Colab & Quick GPU checks with its free GPU, for example while a
 cluster is busy or not yet set up. Colab is not used for reported
 measurements, because its GPU type, memory, and session length vary.\\
-Project tools & git, GitHub, GitHub Projects, Microsoft Teams.\\
+Project tools & git, GitHub, GitHub Projects, Microsoft Teams, Google
+Meet.\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -510,7 +472,7 @@ Project tools & git, GitHub, GitHub Projects, Microsoft Teams.\\
   Granola for meeting notes and summaries.
   \item \textbf{Code:} AI-written code is held to the same standard as any
   other code: it is reviewed in a PR and must pass the tests. For
-  correctness-critical code, such as the attention mask, the author must
+  correctness-critical code, such as the cache translator, the author must
   be able to explain every line in review, since a plausible-looking
   result is not the same as a correct one.
   \item \textbf{Documents:} AI may draft or restructure text, but decisions
@@ -550,6 +512,8 @@ section.
   \item GitHub Copilot pull request review, on PR \#3 of the project
   repository.
   \item Gemini 8 Flash, through Google AI Studio.
+  \item For the November revision, Claude Code (version 2.1.329) with the
+  Claude Opus 5.5 model.
 \end{itemize}
 
 \subsection{How and Where Used}
@@ -574,16 +538,16 @@ Checklist and rubric & Claude compared the draft against
 \path{docs/Checklists/DevPlan-Checklist.tex} and the course rubric and
 listed the gaps (missing PoC fallback, technical and QA roles, schedule
 timing, tool justification); the team decided how to fill each one.\\
-PoC plan & Claude helped design the correctness test and the vLLM
-measurement scenarios described in
-Section~\ref{sec:poc}.\\
+PoC plan & Claude helped design the first PoC plan. For the November
+revision, Claude rewrote Section~\ref{sec:poc}, the terms, technical
+areas, schedule and technology for cross-model KV cache translation, from
+the team's list of changes and decisions.\\
 Schedule & Claude collected the course dates from the capstone
 repository's weekly announcements and course schedule.\\
 License & Copilot review pointed out that \texttt{LICENSE} was still the
 template; the team replaced it.\\
-Technology & Claude suggested FlexAttention and summarized related work
-\cite{Juravsky2024Hydragen, Yao2025DeFT, Ye2025FlashInfer} as candidates
-for the team to read, and drafted the bibliography entries.\\
+Technology & Claude drafted the technology table and the bibliography
+entries.\\
 Reflection & The team supplied its own points and answers; Claude wrote
 them up as prose, and the team checked that the result says what it
 meant.\\
@@ -628,7 +592,10 @@ or an AI system.
 \input{../Reflection.text}
 
 \begin{enumerate}
-    \item It is good for the team to review and agree on the terms of how
+    \item \textbf{Why is it important to create a development plan prior to
+    starting the project?}
+
+    It is good for the team to review and agree on the terms of how
     we want to work together and develop this project, so that problems
     surface early instead of showing up in later deliverables. Making
     explicit decisions about roles, workflow, and technology, and
@@ -641,7 +608,10 @@ or an AI system.
     That exercise directly shaped how we are developing the project, since
     it pushed us to write and run code early, so that if our core idea was
     going to fail, it would fail early, not right before a deadline.
-    \item CI/CD is good for making the development pipeline concrete,
+    \item \textbf{In your opinion, what are the advantages and
+    disadvantages of using CI/CD?}
+
+    CI/CD is good for making the development pipeline concrete,
     giving the team an adequate, repeatable framework to develop against.
     It catches build and documentation errors, and later test failures,
     before they reach \texttt{main}, and it automates tedious tasks like
@@ -656,7 +626,10 @@ or an AI system.
     a useful tool, it can become a bottleneck rather than a help if it is
     not kept reliable, which ties back to the setup and maintenance cost
     of running it at all.
-    \item Two disagreements came up while writing this deliverable. The
+    \item \textbf{What disagreements did your group have in this
+    deliverable, if any, and how did you resolve them?}
+
+    Two disagreements came up while writing this deliverable. The
     first was whether to assign specific names to the newly proposed team
     roles right now. Some teammates argued that naming people would give
     the team firmer direction moving forward and make responsibilities
@@ -729,7 +702,7 @@ discussion and, if unresolved, a team vote (see Decision Making below).
 
 We check progress through commits, issue updates and work shared at
 meetings. If a member makes no meaningful progress on their assigned work
-for two weeks, or misses two consecutive weekly meetings without an
+for two weeks, or misses two consecutive team meetings without an
 acceptable excuse (see Attendance above), the team will speak with them at
 the next meeting. We will agree on next steps and a date to check progress.
 If the problem continues for another two weeks, we will raise it with the
@@ -745,7 +718,7 @@ extension with the team, we will raise it with the TA.
 
 The team eats together after milestone deliverables (Problem Statement,
 PoC demo, Rev 0 demo, Final demo) to mark the milestone and decompress
-before the next one starts. Weekly meetings open with a few minutes of
+before the next one starts. Team meetings open with a few minutes of
 non-project conversation before the agenda starts, so meetings stay a
 place the team wants to show up to, not just a status check.
 
