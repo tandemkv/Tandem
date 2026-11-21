@@ -368,11 +368,11 @@ router did not select & Memory and prediction metrics & Cap the memory for
 predicted caches and expire unused ones & SR-14 & H12, H6\\
 F16 & Request lifecycle & Cancelled or timed-out request keeps its memory
 & Memory leak leading to out-of-memory errors & Missing release path &
-Repeated cancellation tests (T-LIFE-1) & Release resources on every
+Repeated cancellation tests (T-LIFE-1a to T-LIFE-1c) & Release resources on every
 final status & FR-09, FR-15 & H6\\
 F17 & Output streaming & Tokens attached to the wrong request & A user
 receives another user's answer & Request IDs mixed under concurrency &
-Overlapping-request tests (T-LIFE-1) & Keep one ordered output stream and one
+Overlapping-request tests (T-LIFE-1a to T-LIFE-1d) & Keep one ordered output stream and one
 final status per request & FR-08 & H2\\
 F18 & Logging and metrics & Raw prompts, answers or cache data written to
 logs & Private data exposed & Debug logging left on & Scan of logs after

@@ -8,6 +8,8 @@
 \usepackage{amsmath}
 \usepackage{enumitem}
 \usepackage{caption,needspace}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta}
 \captionsetup{hypcap=false}
 \usepackage{hyperref}
 \hypersetup{
@@ -39,7 +41,7 @@
 
 \title{System Verification and Validation Plan for \progname{}}
 \author{\authname}
-\date{November 2, 2026}
+\date{November 21, 2026}
 
 \pagenumbering{roman}
 \maketitle
@@ -56,6 +58,9 @@ Nov 2, 2026 & 0.1 & First version, written against SRS version 0.2 and the
 Hazard Analysis.\\
 Nov 2, 2026 & 0.2 & Complete rubric coverage, fixtures, acceptance gates and learning plans.\\
 Nov 8, 2026 & 0.3 & Address peer review issues \#66, \#67 and \#69--\#71.\\
+Nov 21, 2026 & 0.4 & Address grading feedback and peer review issue \#68:
+T-QUAL-2 pass rule, test details, Figure~\ref{fig:gates}, walkthrough
+checklist and links to the published documents.\\
 \bottomrule
 \end{tabularx}
 \end{minipage}
@@ -88,7 +93,7 @@ Nov 8, 2026 & 0.3 & Address peer review issues \#66, \#67 and \#69--\#71.\\
   KL & Kullback--Leibler divergence between two next-token distributions\\
   KV cache & Key-value cache: per-layer attention keys and values for
   processed tokens\\
-  MG, MIS & Module Guide and Module Interface Specification \citep{TandemDesign}\\
+  MG, MIS & Module Guide \citep{TandemMG} and Module Interface Specification \citep{TandemMIS}\\
   PoC & Proof of concept\\
   SR & Safety or security requirement (SRS and HA)\\
   SRS & Software Requirements Specification \citep{TandemSRS}\\
@@ -225,8 +230,9 @@ term.
   \item \textbf{Development Plan} \citep{TandemDevPlan}. Lists the tools,
   coding standard and CI, which Section~\ref{sec:tools} refers to rather
   than repeating.
-  \item \textbf{MG and MIS} \citep{TandemDesign}. Not yet written. The unit
-  tests in Section~\ref{sec:unit} will be derived from them.
+  \item \textbf{MG and MIS} \citep{TandemMG, TandemMIS}. Define the modules and
+  their access programs; the unit tests in Section~\ref{sec:unit} will be
+  derived from them.
   \item \textbf{ML Model Report} \citep{TandemMLReport}. Reports the results
   of the translator accuracy tests.
   \item \textbf{Same-model cache replay results}
@@ -236,19 +242,21 @@ term.
   the starting point for \tref{T-QUAL-1} and \tref{T-PERF-1}.
 \end{itemize}
 
-\paragraph{Assessment basis.}
-This revision follows the VnV Plan--Main, LO\_Plan and LO\_Reflect rubrics
-retrieved through Brightspace MCP for Avenue course 781906 (assignments
-364168--364170). It supplies a plan, not passing test results. Detailed unit
-tests remain planned until the MIS, as recorded in issue~60.
-
 \begin{figure}[ht]
 \centering
-\fbox{\parbox{0.85\textwidth}{\centering
-Native cache replay controls $\rightarrow$ translator evaluation\\
-$\downarrow$\\
-Isolation and recovery $\rightarrow$ matched GPU performance trials}}
-\caption{Verification order. Failed prerequisites block qualification.}
+\begin{tikzpicture}[
+  stage/.style={draw, rounded corners, align=center, text width=3.6cm,
+    minimum height=1.1cm},
+  flow/.style={-{Stealth}, thick}]
+\node[stage] (replay) {Native cache\\replay controls};
+\node[stage, right=1.2cm of replay] (translator) {Translator\\evaluation};
+\node[stage, below=1cm of translator] (isolation) {Isolation and\\recovery};
+\node[stage, left=1.2cm of isolation] (perf) {Matched GPU\\performance trials};
+\draw[flow] (replay) -- (translator);
+\draw[flow] (translator) -- (isolation);
+\draw[flow] (isolation) -- (perf);
+\end{tikzpicture}
+\caption{Verification order. A failed stage blocks the stages after it.}
 \label{fig:gates}
 \end{figure}
 
@@ -259,6 +267,9 @@ This section describes who carries out verification and validation, how the
 documents are reviewed (SRS, design and this plan), how the implementation
 is verified, which tools are used, and how the team checks that it is
 building the right product.
+Figure~\ref{fig:gates} shows the order in which the tests are run: each
+stage depends on the one before it, so a failure stops the later stages
+until it is fixed.
 
 \subsection{Verification and Validation Team}
 
@@ -276,7 +287,7 @@ Zayed Umer & Same-model accuracy (\tref{T-QUAL-1}) and the translator's
 component-level evaluation. Lead author of the ML Model Report.\\
 Justin Kwinecki & Router and runner tests: input handling (\tref{T-IN-1} to
 \tref{T-IN-3}), cache loading (\tref{T-CACHE-1} to \tref{T-CACHE-3}),
-request lifecycle (\tref{T-LIFE-1}) and configuration
+request lifecycle (\tref{T-LIFE-1a} to \tref{T-LIFE-1d}) and configuration
 (\tref{T-CONF-1}). Maintains the code CI workflow.\\
 Manav Patel & Evaluations for the PoC demonstration: cross-model accuracy
 (\tref{T-QUAL-2}), whose results feed the ML Model Report. Performance tests
@@ -380,12 +391,22 @@ the unit tests planned in Section~\ref{sec:unit}. Static verification uses:
   revisions pinned; tensor shapes, positions, data types and devices
   checked where caches are built or loaded; no prompts, caches or
   credentials committed; documentation updated.
-  \item \textbf{Code walkthrough} before Rev~0 of the cache handoff path.
-  The author explains the code line by line to two members, who check: the
-  cache length equals the number of processed tokens (no token dropped or
-  repeated); the attention mask covers cached and new tokens; RoPE is
-  applied once, at the target model's positions; fallback is taken before
-  any output on every failure path.
+  \item \textbf{Code walkthrough} before Rev~0 of the cache handoff path,
+  with two members who did not write it. The author walks through the code
+  against this checklist, and the reviewers record pass or fail for each
+  item, with an issue for each failure:
+  \begin{enumerate}[noitemsep]
+    \item Which MIS access program each function implements (Cache
+    Handoff, Cache Compatibility).
+    \item The cache length equals the number of processed tokens; no token
+    is dropped or repeated.
+    \item The attention mask covers both cached and new tokens.
+    \item RoPE is applied once, at the target model's positions.
+    \item Every rejection reason can be reached and is logged.
+    \item Cache ownership is released on every path, including failures.
+    \item Text generation starts only after Cache Compatibility accepts the
+    cache, so fallback always happens before any output.
+  \end{enumerate}
 \end{itemize}
 
 \subsection{Automated Testing and Verification Tools}
@@ -435,8 +456,13 @@ Validation checks that the requirements describe something worth building.
   scheduled Rev~0 demo. The team shows a model switch with and without
   \progname{} and asks whether the measured TTFT reduction and quality loss
   would be acceptable in practice. Feedback is recorded as issues.
-  \item \textbf{Public data.} HotpotQA \citep{Yang2018HotpotQA} supplies the
-  passages and questions, so others can repeat the accuracy tests.
+  \item \textbf{Public data.} The final test set is drawn from HotpotQA
+  \citep{Yang2018HotpotQA} at a pinned revision, using the frozen split in
+  Section~\ref{sec:system}: multi-hop questions over long passages, which
+  resemble a routed conversation with a long shared history. On it, the
+  translated cache is validated by the answer F1 of the target model against
+  native prefill (\tref{T-QUAL-2}). Because the data and split are public
+  and pinned, others can repeat the accuracy tests.
 \end{itemize}
 
 \section{System Tests}
@@ -473,9 +499,9 @@ demonstration in mid to late November. The remaining tests run before the
 Rev~0 demonstration in February.
 
 \paragraph{If the serving integration is late.}
-\tref{T-LIFE-1}, \tref{T-LIFE-2} and \tref{T-PERF-2} are the only tests
+\tref{T-LIFE-1a} to \tref{T-LIFE-1d}, \tref{T-LIFE-2} and \tref{T-PERF-2} are the only tests
 for FR-08, FR-09, FR-15, NFR-07, NFR-08, SR-03, SR-13 and SR-14. Until the
-vLLM integration exists, \tref{T-LIFE-1} and case~(2) of \tref{T-LIFE-2}
+vLLM integration exists, \tref{T-LIFE-1a} to \tref{T-LIFE-1d} and case~(2) of \tref{T-LIFE-2}
 run against the Hugging Face runner, once it has a request queue with
 cancellation and timeouts; none of these checks depends on vLLM's
 scheduler. Case~(1) of \tref{T-LIFE-2} (eviction by the engine) and
@@ -511,7 +537,8 @@ remain unverified at Rev~0.
   \item \textbf{Native repeatability check}: before any accuracy test, the
   native reference is run twice on every test prompt. If corresponding
   diagnostic logits after identical preceding tokens differ
-  by more than \cst{SCORE\_ATOL} + \cst{SCORE\_RTOL} $\times$ |value| or the
+  by more than \cst{SCORE\_ATOL} + \cst{SCORE\_RTOL}$\,\times\,\lvert\ell\rvert$,
+  where $\ell$ is the first run's logit, or the
   greedy tokens differ, the accuracy tests are marked blocked until the
   cause (for example a non-deterministic kernel) is found, because the
   reference itself cannot be trusted.
@@ -754,7 +781,8 @@ records.
 \item[Control] Automatic
 \item[Initial state] Setup S with the SR-10 check enabled.
 \item[Input] For 20 test-set prompts, a follow-up request using the
-stored predicted cache, and copies with Gaussian noise (seed 20261102)
+stored predicted cache, and copies with Gaussian noise drawn with seed 20261102, so every run corrupts
+the cache in exactly the same way,
 scaled to relative errors of 0.4, 0.6 and 1.0 at the last
 \cst{CANARY\_TOKENS} positions: either side of \cst{CANARY\_LIMIT}, and
 well above it. Skip a zero-norm case with a recorded
@@ -782,29 +810,70 @@ cancellation (FR-15) and memory held by caches (SR-03 in SRS
 Section~15.2; SR-14 in HA Section~7). They run against the runner first,
 then the serving integration (Section~\ref{sec:schedule}).
 
-\begin{testcase}{T-LIFE-1}{Requests end cleanly}
+\paragraph{Shared setup for \tref{T-LIFE-1a} to \tref{T-LIFE-1d}.} Each
+test uses Setup S in the runner or serving integration, with the timeout set
+to \cst{TEST\_TIMEOUT}, one long request already active, and its cache
+ownership and process-memory baseline $M_0$ recorded. Each test runs
+\cst{LEAK\_CYCLES} cycles of \cst{CONCURRENT\_REQUESTS} overlapping requests
+that ask the model to repeat a distinct 6-digit code; in each cycle exactly
+one request receives the test's fault and the rest complete normally. A
+barrier after cache acquisition makes them overlap with the long request.
+In every test: every output event carries its own request ID, in order;
+each completed output matches its own native reference (correct recall of
+the planted code is not assumed); each accepted request has exactly one
+final status; and after every cycle, ended requests own no private cache
+allocations, active state remains valid, and policy-retained caches are
+accounted for separately. Process memory is plotted against $M_0$, but
+allocator-reserved memory alone does not establish a leak.
+
+\begin{testcase}{T-LIFE-1a}{A request cancelled while queued ends cleanly}
 \item[Control] Automatic
-\item[Initial state] Setup S in the runner or serving integration, with the
-timeout set to \cst{TEST\_TIMEOUT}; one long request already active and
-its cache ownership and process-memory baseline $M_0$ recorded.
-\item[Input] \cst{LEAK\_CYCLES} cycles, each with \cst{CONCURRENT\_REQUESTS}
-overlapping requests that ask the model to repeat a distinct 6-digit code.
-In each cycle one request is cancelled while queued, one is cancelled after
-5 tokens, one is paused by the test configuration until the timeout, and one fails
-through the fault-injection setting. Use a barrier after cache acquisition
-to overlap them with the long request; do not rely on model verbosity to
-force a timeout.
-\item[Output] Every output event carries its own request ID, in order, and
-each completed output matches its own native reference; correct recall of
-the planted code is not assumed. Each accepted request has
-exactly one final status: \texttt{cancelled}, \texttt{cancelled},
-\texttt{failed} with reason \texttt{timeout}, \texttt{failed}, and
-\texttt{completed} for the rest. After every cycle, ended requests own no private cache allocations;
-active state remains valid and policy-retained caches are accounted for
-separately. Plot process memory against $M_0$, but allocator-reserved
-memory alone does not establish a leak.
+\item[Initial state] The shared setup above.
+\item[Input] In each cycle, one request is cancelled before it leaves the
+queue.
+\item[Output] That request ends \texttt{cancelled} and never produces
+output; the others end \texttt{completed}; the shared checks pass.
+\item[Derivation] FR-08, FR-09 and FR-15.
+\item[How performed] Script on the cluster, plotting memory against cycle
+number.
+\end{testcase}
+
+\begin{testcase}{T-LIFE-1b}{A request cancelled while generating ends
+cleanly}
+\item[Control] Automatic
+\item[Initial state] The shared setup above.
+\item[Input] In each cycle, one request is cancelled after it has produced
+5 tokens.
+\item[Output] That request ends \texttt{cancelled} after at most those 5
+tokens; the others end \texttt{completed}; the shared checks pass.
+\item[Derivation] FR-08, FR-09 and FR-15.
+\item[How performed] Script on the cluster, plotting memory against cycle
+number.
+\end{testcase}
+
+\begin{testcase}{T-LIFE-1c}{A timed-out request ends cleanly}
+\item[Control] Automatic
+\item[Initial state] The shared setup above.
+\item[Input] In each cycle, one request is paused by the test configuration
+until \cst{TEST\_TIMEOUT} passes. Model verbosity is not relied on to force
+the timeout.
+\item[Output] That request ends \texttt{failed} with reason
+\texttt{timeout}; the others end \texttt{completed}; the shared checks
+pass.
 \item[Derivation] FR-08, FR-09 and FR-15. The short timeout replaces the
 120-second default so the test runs quickly.
+\item[How performed] Script on the cluster, plotting memory against cycle
+number.
+\end{testcase}
+
+\begin{testcase}{T-LIFE-1d}{A failed request ends cleanly}
+\item[Control] Automatic
+\item[Initial state] The shared setup above.
+\item[Input] In each cycle, one request fails through the fault-injection
+setting.
+\item[Output] That request ends \texttt{failed}; the others end
+\texttt{completed}; the shared checks pass.
+\item[Derivation] FR-08 and FR-09.
 \item[How performed] Script on the cluster, plotting memory against cycle
 number.
 \end{testcase}
@@ -878,13 +947,19 @@ These tests cover sharing between users (SR-01, SR-04, SR-12), stale caches
 
 \begin{testcase}{T-ISOLATION-1}{No reuse across sharing groups}
 \item[Control] Automatic
-\item[Initial state] Setup S.
-\item[Input] The same history sent in sharing group A and then in group B;
-then again in group A; then a request in group B that claims group A in a
-request field.
-\item[Output] Group B never reuses A's cache (reason
-\texttt{no\_permission}); the second request in A reuses it; the claimed
-group is ignored.
+\item[Initial state] Setup S with two reuse domains assigned by the host,
+\texttt{domain-A} and \texttt{domain-B}, given in each request's domain
+field. History H is fixture F1 at the shortest length in
+\cst{CONTEXT\_LENGTHS}, with the code placed early. Its first turn is sent
+in \texttt{domain-A} and answered by SmolLM, so a predicted Qwen cache for
+H is stored under \texttt{domain-A}.
+\item[Input] (1) A follow-up turn on H routed to Qwen in
+\texttt{domain-B}. (2) The same follow-up in \texttt{domain-A}. (3) A
+follow-up in \texttt{domain-B} whose request body also names
+\texttt{domain-A}.
+\item[Output] (1) Native prefill, with reason \texttt{no\_permission}.
+(2) The predicted cache is reused. (3) Native prefill, with reason
+\texttt{no\_permission}; the domain named in the request body is ignored.
 \item[Derivation] SR-01 and SR-12: sharing is decided by the host, never by
 the request.
 \item[How performed] End-to-end test.
@@ -899,7 +974,8 @@ concurrent requests in the same group: request R, which is held fixed, and
 a second branch B whose private suffix is ``secret-A'' in one run and
 ``secret-B'' in a second run.
 \item[Output] R's returned log-probabilities are within \cst{SCORE\_ATOL}
-+ \cst{SCORE\_RTOL} $\times$ |value| across the two runs, and its greedy tokens are identical,
++ \cst{SCORE\_RTOL}$\,\times\,\lvert\ell\rvert$ across the two runs,
+where $\ell$ is the first run's log-probability, and its greedy tokens are identical,
 for \cst{GREEDY\_TOKENS} tokens. R's output never contains ``secret-A'' or
 ``secret-B''.
 \item[Derivation] SR-04: shared history grants no access to later private
@@ -970,18 +1046,18 @@ next-token KL divergence. Compute $D_{KL}(p_{native}\Vert p_{translated})$
 at temperature one after identical native preceding tokens, averaging
 within each prompt and then across prompts. Independent greedy generation
 is evaluated separately; teacher-path agreement is not sequence agreement.
-\textbf{Current SRS pass:} (a) meets the diagnostic-logit tolerances and
-identical greedy-token criterion of \tref{T-QUAL-1}. A failed approximation
-is reported as failed, even if a diagnostic metric improves.
+\textbf{Pass (SR-09):} at every length in \cst{CONTEXT\_LENGTHS}, the mean
+HotpotQA answer F1 of (a) is at most \cst{QUALITY\_LOSS\_LIMIT} (0.05,
+absolute) below that of (b), with both arms given the same truncated
+passage. First-token agreement, matching prefix length, exact-sequence
+agreement and next-token KL are reported as diagnostics, not pass
+conditions. The exact checks of NFR-05 apply to same-model replay
+(\tref{T-QUAL-1}) only.
 \item[How performed] Evaluation script on the cluster. Freeze the
 checkpoint and thresholds before final data is inspected. Report every
 length and bootstrap complete prompts, not correlated token positions.
-The HA's alternative answer-F1 loss limit is a proposal pending issue~39;
-it cannot replace NFR-05 until reviewed and adopted in the SRS. If adopted,
-use labelled, untruncated QA inputs with sufficient answer budget and a
-separately approved scoring protocol. Answer labels are unnecessary for
-the native-versus-loaded cache check. Traces to FR-14, FR-16, NFR-05 and
-proposed HA SR-09.
+Answer F1 uses the HotpotQA answer labels with an answer budget long
+enough for every reference answer. Traces to FR-14, FR-16 and HA SR-09.
 \end{testcase}
 
 \subsubsection{Performance}
@@ -1000,9 +1076,11 @@ the translated arm into translation, check, load and suffix prefill time;
 a plot of TTFT against context length for all four arms; and, not
 pass/fail, peak allocated memory per arm, cache size per token and GPU time
 per completed request including translation. \textbf{Pass
-(NFR-04)} if, at some length, the translated arm processes fewer prompt
+(NFR-04)} if, at the longest length in \cst{CONTEXT\_LENGTHS}, chosen
+before the run as NFR-04's preselected workload, the translated arm processes fewer prompt
 tokens and the upper confidence bound of its median TTFT is below the lower
-bound of the native median, with \tref{T-QUAL-2} passing.
+bound of the native median, with \tref{T-QUAL-2} passing. Every other
+length is reported, including slowdowns.
 \item[How performed] Benchmark script; results and command committed and
 analysed in the Performance Report. Also verifies the SR-10 fit criterion
 that the check keeps TTFT below native.
@@ -1043,7 +1121,15 @@ Performance Report.
 \item[Initial state] A clean machine or cluster account with the listed
 prerequisites.
 \item[Input/Condition] A reviewer who did not write the instructions
-follows the README to install \progname{} and run the basic example. From
+follows the README to install \progname{} and run the basic example. The
+README lists the prerequisites (Python version, GPU and driver, packages),
+the install commands, how to download the pinned models and translator
+checkpoint, the command for the basic example and its expected output, and
+where the reason codes are documented. The basic example is a two-turn
+conversation from fixture F1 at the shortest length: the first turn is
+answered by SmolLM and the second is routed to Qwen. It runs once with
+prediction on and once with it off, and prints each request's record and
+the comparison report. From
 the example's comparison report alone, they then answer: which requests
 reused a cache; which fell back and why; the median TTFT of each arm; and
 whether each test passed or failed. Every reason code produced while running
@@ -1089,22 +1175,22 @@ FR-04 & \tref{T-CACHE-1} & Code walkthrough\\
 FR-05 & \tref{T-CACHE-2}, \tref{T-CACHE-3} & Code walkthrough\\
 FR-06 & \tref{T-FB-1}, \tref{T-CACHE-1} & \\
 FR-07 & \tref{T-FB-2} & Seeded fault\\
-FR-08 & \tref{T-LIFE-1} & \\
-FR-09 & \tref{T-LIFE-1} & \\
+FR-08 & \tref{T-LIFE-1a} to \tref{T-LIFE-1d} & \\
+FR-09 & \tref{T-LIFE-1a} to \tref{T-LIFE-1d} & \\
 FR-10 & \tref{T-REPORT-1} & \\
 FR-11 & \tref{T-REPORT-1} & \\
 FR-12 & \tref{T-REPORT-1}, \tref{T-PERF-1} & \\
 FR-13 & \tref{T-CONF-1} & \\
 FR-14 & \tref{T-CONF-1}, \tref{T-QUAL-2} & ML Model Report (data
 splits)\\
-FR-15 & \tref{T-LIFE-1} & \\
+FR-15 & \tref{T-LIFE-1a} to \tref{T-LIFE-1c} & \\
 FR-16 & \tref{T-CACHE-2}, \tref{T-QUAL-2} & ML Model Report (per-layer
 error, metamorphic checks)\\
 NFR-01 & \tref{T-DOC-1} & \\
 NFR-02 & \tref{T-DOC-1} & \\
 NFR-03 & \tref{T-IN-2} & \\
 NFR-04 & \tref{T-PERF-1} & Performance Report\\
-NFR-05 & \tref{T-QUAL-1}, \tref{T-QUAL-2} & Advisor review\\
+NFR-05 & \tref{T-QUAL-1} & Advisor review\\
 NFR-06 & \tref{T-FB-2} & \\
 NFR-07 & \tref{T-PERF-2} & Performance Report\\
 NFR-08 & \tref{T-PERF-2} & Performance Report\\
@@ -1131,7 +1217,7 @@ DR-02 & \tref{T-DOC-1} & \\
 \section{Unit Test Description}
 \label{sec:unit}
 
-The unit tests will be written after the MIS \citep{TandemDesign} is
+The unit tests will be written after the MIS \citep{TandemMIS} is
 complete, so this section gives the planned approach only.
 
 \subsection{Unit Testing Scope}
@@ -1234,7 +1320,7 @@ multiples of the unmodified engine's measured maximum throughput: below, at
 and above capacity. Higher throughput (NFR-07) can only show at or above
 capacity; 0.5 checks that light load is not slowed (NFR-08).\\
 \cst{ARRIVAL\_SEED} & 20261102 & Seed for the Poisson arrival times\\
-\cst{TEST\_TIMEOUT} & 2 s & Request timeout used in \tref{T-LIFE-1}\\
+\cst{TEST\_TIMEOUT} & 2 s & Request timeout used in \tref{T-LIFE-1c}\\
 \cst{MEMORY\_TOLERANCE} & 1 MiB & Allowed memory difference after a cycle\\
 \cst{SECRET\_MARKER} & \texttt{TANDEM-SECRET-}\allowbreak\texttt{7f3a} & String searched for in
 logs\\
