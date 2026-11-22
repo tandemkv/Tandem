@@ -1,6 +1,7 @@
-"""Show how Tandem classifies and answers independent prompts."""
+"""Chat interactively or route independent prompts in batch mode."""
 import argparse
 
+from src.translation_layer.conversation_manager import ConversationManager
 from .demo_setup import build_demo_classifier, build_demo_runner
 
 
@@ -37,11 +38,21 @@ def main():
     except (ImportError, OSError) as error:
         parser.exit(1, f"Could not load demo dependencies or checkpoints: {error}\n")
 
-    for prompt in args.prompts or interactive_prompts():
-        if args.prompts:
-            print(f"\nPrompt: {prompt}")
+    if not args.prompts:
+        conversation = ConversationManager(runner)
+        for prompt in interactive_prompts():
+            try:
+                answer = conversation.send(prompt, max_new_tokens=128)
+            except ValueError as error:
+                print(f"Could not complete turn: {error}")
+                continue
+            print(f"Model: {runner.model_names[conversation.current_model]}\nAnswer: {answer}")
+        return
+
+    for prompt in args.prompts:
+        print(f"\nPrompt: {prompt}")
         answer, cache = runner.receive_prompt(prompt, conversation_text=prompt,
-                                              current_model="model_a", max_new_tokens=64)
+                                              current_model="model_a", max_new_tokens=128)
         print(f"Model: {cache.tandem_model_name}\nAnswer: {answer}")
 
 

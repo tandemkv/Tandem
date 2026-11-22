@@ -15,13 +15,12 @@ rehearse offline.
 
 At `You>`, enter a prompt and press Return. The demo prints the task, model,
 and answer, then waits for another prompt. Type `/quit` or press Ctrl-D to exit.
-Try these prompts to see both routes:
+Try these prompts in sequence to exercise same-model context reuse:
 
 - Write a one-line Python function that squares a number. Return only the code.
-- Summarize this in one sentence: The library opens at nine. It closes at five.
+- What about in C++?
 
-For a scripted run, pass each prompt as a quoted command-line argument.
-
-Each prompt starts a fresh conversation. Continuing one conversation across
+For a scripted run with independent prompts, pass each prompt as a quoted
+command-line argument. Interactive turns share a conversation. Continuing it across
 models requires a compatible KV-cache mapper and trained checkpoint for the
 switch direction (see issues #73 and #74).
