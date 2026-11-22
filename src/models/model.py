@@ -95,10 +95,6 @@ class Model:
                 break
         self.cache = output.past_key_values
         self.cache.tandem_model_name = self.model_name
-        self.cache.tandem_model_revision = (
-            self.revision if kv_cache is None or getattr(kv_cache, "tandem_model_revision", None) == self.revision
-            else None
-        )
         prefix_ids = [] if kv_cache is None else getattr(kv_cache, "tandem_token_ids", None)
         self.cache.tandem_token_ids = (
             None if prefix_ids is None else list(prefix_ids) + list(tokens) + generated
