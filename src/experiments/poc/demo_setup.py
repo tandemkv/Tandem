@@ -32,12 +32,16 @@ def build_demo_runner(*, classifier: Classifier | None = None, kv_cache_mapper: 
                       mode: Literal["task", "complexity"] = "task",
                       complexity_threshold: float = 0.5) -> InferenceRunner:
     from src.models.model import Model
+    from src.translation_layer.cache_mapper import QWEN, SMOLLM, CacheMapper
 
+    # The mapper's checkpoints were fit to these revisions.
+    qwen = Model(model_name=QWEN[0], revision=QWEN[1])
+    smollm = Model(model_name=SMOLLM[0], revision=SMOLLM[1])
     return InferenceRunner(
-        model_a=Model(model_name="Qwen/Qwen2.5-0.5B-Instruct"),
-        model_b=Model(model_name="HuggingFaceTB/SmolLM2-360M-Instruct"),
+        model_a=qwen,
+        model_b=smollm,
         classifier_model=classifier if classifier is not None else build_demo_classifier(),
-        kv_cache_mapper=kv_cache_mapper,
+        kv_cache_mapper=kv_cache_mapper if kv_cache_mapper is not None else CacheMapper([qwen, smollm]),
         task_models=TASK_MODELS,
         mode=mode,
         complexity_threshold=complexity_threshold,

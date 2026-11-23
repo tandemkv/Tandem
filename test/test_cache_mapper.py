@@ -73,7 +73,7 @@ class DistilledMapperTests(unittest.TestCase):
         cache.tandem_token_ids = [0, 1, 2]
         original = [(layer.keys.clone(), layer.values.clone()) for layer in cache.layers]
         runner = InferenceRunner(target, source, lambda _: {"task": "switch"}, mapper,
-                                 task_models={"switch": "model_a"}, prompt_mode="plain")
+                                 task_models={"switch": "model_a"})
         with patch.object(target, "run_tokens", wraps=target.run_tokens) as run_tokens:
             _, result = runner.receive_prompt("d", conversation_text="abcd", current_model="model_b",
                                               kv_cache=cache, prefix_boundary=3,
@@ -94,4 +94,4 @@ class DistilledMapperTests(unittest.TestCase):
             self.assertTrue(torch.equal(layer.keys, keys) and torch.equal(layer.values, values))
         with self.assertRaises(UnsupportedTranslationError):
             mapper(cache=result, source_model=QWEN[0], target_model=source, conversation_text="",
-                   cached_token_ids=[], prefix_boundary=0, prompt_mode="plain")
+                   cached_token_ids=[], prefix_boundary=0)

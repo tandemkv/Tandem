@@ -1,5 +1,5 @@
 """Answer-model contract, independent of any inference framework."""
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 
 
 class AnswerModel(Protocol):
@@ -14,7 +14,7 @@ class AnswerModel(Protocol):
     model_name: str
 
     def run(self, prompt: str, *, kv_cache: Any = None, is_suffix: bool = False,
-            max_new_tokens: int = 100, prompt_mode: Literal["chat", "plain"] = "chat") -> str: ...
+            max_new_tokens: int = 100) -> str: ...
 
     def run_tokens(self, tokens: list[int], *, kv_cache: Any = None,
                    max_new_tokens: int = 100) -> str: ...

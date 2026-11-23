@@ -114,12 +114,12 @@ class CacheMapper:
 
     @torch.no_grad()
     def __call__(self, *, cache, source_model, target_model, conversation_text,
-                 cached_token_ids, prefix_boundary, prompt_mode):
+                 cached_token_ids, prefix_boundary):
         direction = self.directions.get((source_model, target_model.model_name))
         if direction is None:
             raise UnsupportedTranslationError(source_model, target_model.model_name)
-        if prompt_mode != "plain" or target_model is not direction.target:
-            raise ValueError("Use plain text and the target instance supplied to the mapper")
+        if target_model is not direction.target:
+            raise ValueError("Use the target instance supplied to the mapper")
         if (getattr(cache, "tandem_model_revision", None) != direction.source.revision
                 or getattr(cache, "tandem_model_name", None) != source_model
                 or getattr(cache, "tandem_token_ids", None) != cached_token_ids

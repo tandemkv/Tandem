@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from src.translation_layer.inference_runner import InferenceRunner
+from src.translation_layer.interfaces import UnsupportedTranslationError
 
 
 class RunnerTests(unittest.TestCase):
@@ -42,7 +43,7 @@ class RunnerTests(unittest.TestCase):
         self.model_a.run.assert_called_once()
         self.assertEqual(self.model_b.run.call_count, 2)
         self.model_b.run.assert_called_with('suffix', kv_cache=cache, is_suffix=True,
-                                           max_new_tokens=100, prompt_mode='chat')
+                                           max_new_tokens=100)
         self.classifier.assert_called_with('suffix')
         self.mapper.assert_not_called()
 
@@ -74,8 +75,6 @@ class RunnerTests(unittest.TestCase):
         self.classifier.assert_not_called()
         self.classifier.return_value = {'task': 'Code Generation'}
         cache = Mock(tandem_model_name=self.model_b.model_name)
-        with self.assertRaisesRegex(ValueError, 'translation is not available'):
-            runner.receive_prompt('suffix', conversation_text='prefix suffix', current_model='model_b', kv_cache=cache)
         with self.assertRaisesRegex(ValueError, 'provenance'):
             runner.receive_prompt('suffix', conversation_text='prefix suffix', current_model='model_a', kv_cache=cache)
         # current_model supplies provenance for an untagged external cache.
@@ -96,7 +95,6 @@ class RunnerTests(unittest.TestCase):
                 source_cache.get_seq_length.return_value = 2
                 translated, target_ids = object(), [7, 8, 9]
                 self.mapper.return_value = translated, target_ids
-                self.runner.prompt_mode = 'plain'
                 target_model = self.runner._models[target]
                 result = self.runner.receive_prompt(
                     'prefix suffix', current_model=source, kv_cache=source_cache,
@@ -105,7 +103,7 @@ class RunnerTests(unittest.TestCase):
                 self.mapper.assert_called_with(
                     cache=source_cache, source_model=self.runner.model_names[source],
                     target_model=target_model, conversation_text='prefix suffix',
-                    cached_token_ids=[1, 2], prefix_boundary=6, prompt_mode='plain')
+                    cached_token_ids=[1, 2], prefix_boundary=6)
                 target_model.run.assert_not_called()
                 target_model.run_tokens.assert_called_once_with(
                     target_ids, kv_cache=translated, max_new_tokens=3)
@@ -121,6 +119,25 @@ class RunnerTests(unittest.TestCase):
                 self.runner.receive_prompt('abc', current_model='model_a', kv_cache=cache, **context)
         self.mapper.assert_not_called()
         self.model_b.run_tokens.assert_not_called()
+
+    def test_switch_without_a_map_runs_the_conversation_natively(self):
+        self.classifier.return_value = {'task': 'Code Generation'}
+        cache = Mock(tandem_model_name=self.model_b.model_name)
+        cache.get_seq_length.return_value = 1
+        handoff = dict(conversation_text='prefix suffix', current_model='model_b', kv_cache=cache,
+                       cached_token_ids=[1], prefix_boundary=6, max_new_tokens=3)
+        unsupported = Mock(side_effect=UnsupportedTranslationError('custom/answer-b', 'custom/answer-a'))
+        for mapper in (None, unsupported):
+            with self.subTest(mapper=mapper):
+                self.model_a.reset_mock()
+                runner = InferenceRunner(self.model_a, self.model_b, self.classifier, mapper,
+                                         task_models=self.task_models)
+                runner.receive_prompt('suffix', **handoff)
+                self.model_a.run.assert_called_once_with('prefix suffix', max_new_tokens=3)
+                self.model_a.run_tokens.assert_not_called()
+        runner.kv_cache_mapper = Mock(side_effect=ValueError('token IDs do not match'))
+        with self.assertRaisesRegex(ValueError, 'token IDs do not match'):
+            runner.receive_prompt('suffix', **handoff)
 
     def test_invalid_dependencies_and_task_aliases(self):
         with self.assertRaisesRegex(ValueError, 'distinct model_name'):

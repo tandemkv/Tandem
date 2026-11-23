@@ -5,7 +5,7 @@ from typing import Literal
 from src.models.interfaces import AnswerModel
 from src.routing import router
 from src.routing.interfaces import Classifier
-from src.translation_layer.interfaces import KVCacheMapper
+from src.translation_layer.interfaces import KVCacheMapper, UnsupportedTranslationError
 
 
 class InferenceRunner:
@@ -14,7 +14,9 @@ class InferenceRunner:
     Answer models implement AnswerModel. classifier_model(prompt) returns
     task/complexity predictions according to the Classifier protocol.
     kv_cache_mapper follows the keyword contract documented in _translate_cache;
-    pass None to disable cross-model cache reuse. Loading belongs to the caller.
+    pass None to disable cross-model cache reuse (switches then run natively).
+    Prompts are encoded verbatim, so callers include any chat framing.
+    Loading belongs to the caller.
     """
 
     def __init__(
@@ -27,11 +29,7 @@ class InferenceRunner:
         task_models: Mapping[str, str] | None = None,
         mode: Literal["task", "complexity"] = "task",
         complexity_threshold: float = 0.5,
-        prompt_mode: Literal["chat", "plain"] = "chat",
     ) -> None:
-        if prompt_mode not in ("chat", "plain"):
-            raise ValueError("prompt_mode must be chat or plain")
-        self.prompt_mode = prompt_mode
         self._models = {"model_a": model_a, "model_b": model_b}
         self.model_names = {}
         for alias, model in self._models.items():
@@ -76,17 +74,17 @@ class InferenceRunner:
         so callers need not predict routing. For translation, prefix_boundary is
         its cached prefix end (a Python character offset), and cached_token_ids are the exact
         source IDs represented by the cache, including any framing/generated IDs.
-        uncached_suffix allows routing on the user message while executing a
-        separately framed continuation. It requires a cache and is_suffix=True.
+        uncached_suffix allows routing on the user message while executing
+        separately framed text. With a cache it requires is_suffix=True.
         """
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("prompt must be nonempty text")
         if not isinstance(conversation_text, str) or not conversation_text.strip():
             raise ValueError("conversation_text must be nonempty text including the new prompt")
         if uncached_suffix is not None and (
-                kv_cache is None or not is_suffix
+                (kv_cache is not None and not is_suffix)
                 or not isinstance(uncached_suffix, str) or not uncached_suffix.strip()):
-            raise ValueError("uncached_suffix requires nonempty text, a cache and is_suffix=True")
+            raise ValueError("uncached_suffix requires nonempty text, and is_suffix=True with a cache")
         self._validate_model(current_model)
         choice = router.route(
             prompt, mode=self.mode, threshold=self.complexity_threshold,
@@ -108,17 +106,22 @@ class InferenceRunner:
                     or any(type(token) is not int or token < 0 for token in cached_token_ids)):
                 raise ValueError("cached_token_ids must match the source cache length")
         model = self._models[choice]
+        translated_cache = None
         if translating:
             translated_cache, target_tokens = self._translate_cache(
                 kv_cache, self.model_names[current_model], model, conversation_text=conversation_text,
                 cached_token_ids=cached_token_ids, prefix_boundary=prefix_boundary,
             )
+        if translated_cache is not None:
             answer = model.run_tokens(target_tokens, kv_cache=translated_cache,
                                       max_new_tokens=max_new_tokens)
+        elif translating:
+            # No map for this direction: process the whole conversation natively (FR-06).
+            answer = model.run(conversation_text, max_new_tokens=max_new_tokens)
         else:
             answer = model.run(prompt if uncached_suffix is None else uncached_suffix,
                                kv_cache=kv_cache, is_suffix=is_suffix,
-                               max_new_tokens=max_new_tokens, prompt_mode=self.prompt_mode)
+                               max_new_tokens=max_new_tokens)
         return answer, model.get_kv_cache()
 
 
@@ -129,16 +132,17 @@ class InferenceRunner:
         target_model is the supplied AnswerModel. The mapper must support this
         model pair and owns alignment, checkpoint selection,
         key-position conversion and target cache provenance. It must preserve
-        the input cache. conversation_text includes the uncached continuation; the
-        adapter formats chat mode exactly once when preparing target tokens.
+        the input cache. conversation_text includes the uncached continuation.
+        A missing mapper or unsupported direction returns (None, None) so the
+        caller processes the conversation natively.
         """
         if self.kv_cache_mapper is None:
-            raise ValueError(
-                f"cache from {source_model} is incompatible with {target_model.model_name}; "
-                "cross-model cache translation is not available: no kv_cache_mapper configured"
+            return None, None
+        try:
+            return self.kv_cache_mapper(
+                cache=cache, source_model=source_model, target_model=target_model,
+                conversation_text=conversation_text, cached_token_ids=cached_token_ids,
+                prefix_boundary=prefix_boundary,
             )
-        return self.kv_cache_mapper(
-            cache=cache, source_model=source_model, target_model=target_model,
-            conversation_text=conversation_text, cached_token_ids=cached_token_ids,
-            prefix_boundary=prefix_boundary, prompt_mode=self.prompt_mode,
-        )
+        except UnsupportedTranslationError:
+            return None, None
