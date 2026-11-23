@@ -284,7 +284,7 @@ TSWLatexianTemp*
 __pycache__/
 *.pyc
 
-/venv/
+venv/
 
 # Local experiment outputs (model/cache tensors must not be committed).
 /artifacts/
