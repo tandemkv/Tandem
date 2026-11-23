@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from src.translation_layer.inference_runner import InferenceRunner
+from src.translation_layer.selection import TranslationCheckpoint
 
 
 class RunnerTests(unittest.TestCase):
@@ -115,12 +116,20 @@ class RunnerTests(unittest.TestCase):
     def test_translation_rejects_missing_or_mismatched_context(self):
         cache = Mock(tandem_model_name=self.model_a.model_name)
         cache.get_seq_length.return_value = 2
-        for context in ({'conversation_text': 'abc'}, {'conversation_text': 'abc', 'prefix_boundary': 4},
-                        {'conversation_text': 'abc', 'prefix_boundary': 1, 'cached_token_ids': [1]}):
-            with self.assertRaises(ValueError):
-                self.runner.receive_prompt('abc', current_model='model_a', kv_cache=cache, **context)
+        registered_runner = InferenceRunner(
+            self.model_a, self.model_b, self.classifier, task_models=self.task_models,
+            translation_model='kvport', translation_models={'kvport': {
+                (self.model_a.model_name, self.model_b.model_name):
+                    TranslationCheckpoint('test-checkpoint', self.mapper),
+            }})
+        for name, runner in (('legacy', self.runner), ('registered', registered_runner)):
+            for context in ({'conversation_text': 'abc'}, {'conversation_text': 'abc', 'prefix_boundary': 4},
+                            {'conversation_text': 'abc', 'prefix_boundary': 1, 'cached_token_ids': [1]}):
+                with self.subTest(mapper=name, context=context), self.assertRaises(ValueError):
+                    runner.receive_prompt('abc', current_model='model_a', kv_cache=cache, **context)
         self.mapper.assert_not_called()
         self.model_b.run_tokens.assert_not_called()
+        self.model_b.run.assert_not_called()
 
     def test_invalid_dependencies_and_task_aliases(self):
         with self.assertRaisesRegex(ValueError, 'distinct model_name'):
