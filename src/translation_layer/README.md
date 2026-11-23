@@ -177,25 +177,25 @@ caller; the runner does not run the target or fall back to prefill. The
 conversation manager keeps its prior history and cache so the caller can retry.
 Unexpected mapper failures also propagate.
 
-The distilled SmolLM → Qwen adapter uses the pinned plain-text checkpoint from
-the offline evaluation. Its constructor verifies both downloaded files and
+`CacheMapper` holds one pinned affine map per direction; today SmolLM → Qwen
+uses the Distilled-8000 checkpoint from the offline evaluation. Its constructor verifies the downloaded files and
 requires read access to the private Hugging Face dataset
 `tandemkv/paired-kv-qwen-smollm`. Construct it once and reuse it with the same models.
 
 ```python
-from src.adapters.distilled_kv import DistilledKVMapper, SOURCE, TARGET
+from src.translation_layer.cache_mapper import CacheMapper, SMOLLM, QWEN
 from src.models.model import Model
 from src.translation_layer.inference_runner import InferenceRunner
 
-smol = Model(model_name=SOURCE[0], revision=SOURCE[1])
-qwen = Model(model_name=TARGET[0], revision=TARGET[1])
+smol = Model(model_name=SMOLLM[0], revision=SMOLLM[1])
+qwen = Model(model_name=QWEN[0], revision=QWEN[1])
 runner = InferenceRunner(qwen, smol, classifier_model=lambda _: {"task": "question"},
                          task_models={"question": "model_a"}, prompt_mode="plain",
-                         kv_cache_mapper=DistilledKVMapper(smol, qwen))
+                         kv_cache_mapper=CacheMapper([smol, qwen]))
 ```
 
 Supply a revision-tagged SmolLM cache and its exact plain-text prefix using
-the handoff arguments above. Qwen → SmolLM requires its own checkpoint (#74).
+the handoff arguments above. Qwen → SmolLM needs its own checkpoint, added as a `DIRECTIONS` entry (#74).
 Switching models without a cache already works. The runner is intended for
 sequential local calls, not concurrent requests.
 

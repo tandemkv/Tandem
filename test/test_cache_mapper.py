@@ -6,7 +6,7 @@ from unittest.mock import patch
 import torch
 from transformers import LlamaConfig, LlamaForCausalLM, Qwen2Config, Qwen2ForCausalLM
 
-from src.adapters.distilled_kv import DistilledKVMapper, SOURCE, TARGET, _split
+from src.translation_layer.cache_mapper import CacheMapper, SMOLLM, QWEN, _split
 from src.models.model import Model
 from src.translation_layer.inference_runner import InferenceRunner
 from src.translation_layer.interfaces import UnsupportedTranslationError
@@ -46,8 +46,8 @@ class DistilledMapperTests(unittest.TestCase):
         torch.manual_seed(73)
         tokenizer = Tokenizer(["a", "b", "c", "d"])
         models = []
-        for pin, config, network in ((SOURCE, LlamaConfig, LlamaForCausalLM),
-                                     (TARGET, Qwen2Config, Qwen2ForCausalLM)):
+        for pin, config, network in ((SMOLLM, LlamaConfig, LlamaForCausalLM),
+                                     (QWEN, Qwen2Config, Qwen2ForCausalLM)):
             cfg = config(vocab_size=16, hidden_size=16, intermediate_size=32, num_hidden_layers=2,
                          num_attention_heads=2, num_key_value_heads=1, eos_token_id=None)
             with patch("src.models.model.AutoModelForCausalLM.from_pretrained", return_value=network(cfg)), \
@@ -59,8 +59,8 @@ class DistilledMapperTests(unittest.TestCase):
         checkpoint = {"layers": torch.tensor([[1], [0]]), "weights": weights}
         norms = {f"{role}_{stat}": fn(2, 2, 8) for role in ("source", "target")
                  for stat, fn in (("mean", torch.zeros), ("std", torch.ones))}
-        with patch("src.adapters.distilled_kv._load", side_effect=[checkpoint, {"model": norms}]):
-            mapper = DistilledKVMapper(source, target)
+        with patch("src.translation_layer.cache_mapper._load", side_effect=[checkpoint, {"model": norms}]):
+            mapper = CacheMapper([source, target])
         captured = []
         handles = [layer.self_attn.k_proj.register_forward_hook(lambda m, args, out: captured.append(out))
                    for layer in source.model.model.layers]
@@ -69,7 +69,7 @@ class DistilledMapperTests(unittest.TestCase):
         finally:
             for handle in handles:
                 handle.remove()
-        cache.tandem_model_name, cache.tandem_model_revision = SOURCE
+        cache.tandem_model_name, cache.tandem_model_revision = SMOLLM
         cache.tandem_token_ids = [0, 1, 2]
         original = [(layer.keys.clone(), layer.values.clone()) for layer in cache.layers]
         runner = InferenceRunner(target, source, lambda _: {"task": "switch"}, mapper,
@@ -93,5 +93,5 @@ class DistilledMapperTests(unittest.TestCase):
         for layer, (keys, values) in zip(cache.layers, original):
             self.assertTrue(torch.equal(layer.keys, keys) and torch.equal(layer.values, values))
         with self.assertRaises(UnsupportedTranslationError):
-            mapper(cache=result, source_model=TARGET[0], target_model=source, conversation_text="",
+            mapper(cache=result, source_model=QWEN[0], target_model=source, conversation_text="",
                    cached_token_ids=[], prefix_boundary=0, prompt_mode="plain")
