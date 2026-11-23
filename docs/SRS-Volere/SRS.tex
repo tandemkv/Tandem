@@ -53,6 +53,7 @@ Oct 19, 2026 & 0.2 & Make source-to-target KV cache prediction central to the sc
 Oct 19, 2026 & 0.3 & Shorten supporting sections and requirements; mark host-provided security features not applicable and consolidate duplicate checks.\\
 Oct 20, 2026 & 0.4 & Present functional and quality requirements as bullet points; replace most mathematical notation with plain-language checks.\\
 Oct 20, 2026 & 0.5 & Remove the traceability matrix and draft test-settings table; replace remaining setting references with plain-language limits.\\
+Nov 20, 2026 & 0.6 & Restore named test settings with values, units, reasons and draft status in an appendix.\\
 \bottomrule
 \end{tabularx}
 
@@ -522,6 +523,8 @@ FR and NFR are requirement IDs. Detailed test procedures belong in the
 Verification and Validation (V\&V) Plan. Draft accuracy and performance limits need team approval before final
 tests; review them on development data (OI3), without changing thresholds
 to rescue failed final tests.
+Named settings and their current values appear in
+Table~\ref{tab:symbolic-constants} in the appendix.
 
 \begin{itemize}
 \item \phantomsection\label{req:FR-01}
@@ -583,7 +586,7 @@ Tandem shall return ordered output under the correct request ID and exactly one 
 \item \phantomsection\label{req:FR-09}
 \textbf{FR-09 --- Release memory when a request ends}\par
 Tandem shall release ended requests' resources while preserving cache state needed by active requests.\par
-\textbf{Check.} Repeat completion, failure and cancellation for 100 cycles; no ended request retains its allocation and active outputs remain correct. Policy-retained reusable caches are allowed.\par
+\textbf{Check.} Repeat completion, failure and cancellation for \texttt{LEAK\_CYCLES} cycles; no ended request retains its allocation and active outputs remain correct. Policy-retained reusable caches are allowed.\par
 \textbf{Why.} Prevent leaks without discarding useful caches.
 
 
@@ -625,7 +628,7 @@ Tandem shall enable a setup only after recording KV prediction error and passing
 \item \phantomsection\label{req:FR-15}
 \textbf{FR-15 --- Stop cancelled or timed-out requests}\par
 Tandem shall support cancellation and enforce configured request timeouts.\par
-\textbf{Check.} Cancel queued and running requests, and test requests exceeding the configured timeout (120 seconds by default). Each stops safely, records the right reason and releases resources under \hyperref[req:FR-09]{\texttt{FR-09}}.\par
+\textbf{Check.} Cancel queued and running requests, and test requests exceeding the configured timeout. The default is \texttt{DEFAULT\_TIMEOUT}. Each stops safely, records the right reason and releases resources under \hyperref[req:FR-09]{\texttt{FR-09}}.\par
 \textbf{Why.} Running GPU operations need safe stopping points.
 
 
@@ -678,10 +681,11 @@ norm, separately for keys and values. If the reference norm is zero, report
 absolute error and mark relative error undefined. Small KV error alone does
 not establish acceptable outputs.
 \item Compare corresponding logits (next-token scores) after identical prior
-tokens. The draft limit on the absolute difference is 0.001 plus
-0.001 multiplied by the absolute native score. Apply token masks
+tokens. The draft limit on the absolute difference is
+\texttt{SCORE\_ATOL} plus \texttt{SCORE\_RTOL} multiplied by the absolute
+native score. Apply token masks
 consistently; unexpected nonfinite values fail.
-\item Greedy decoding must return identical tokens for 32 tokens,
+\item Greedy decoding must return identical tokens for \texttt{GREEDY\_TOKENS} tokens,
 or until both runs stop earlier. First verify native-run repeatability.
 Sampling settings need separate recorded qualification or native fallback;
 equal seeds alone do not guarantee matching outputs.
@@ -695,8 +699,9 @@ accepted/missing/rejected predictions, concurrency and forced failures.
 Match prompts, routing, settings, arrivals and resource limits; record cache
 preparation/hits and explain differences.
 
-Start with three untimed warmups and ten alternating timed pairs, adding
-trials if uncertainty is too large; record cache preparation and report
+Start with \texttt{WARMUP\_RUNS} untimed warmups and \texttt{TIMED\_PAIRS}
+alternating timed pairs, adding trials if uncertainty is too large;
+record cache preparation and report
 skips, failures, uncertainty, slowdowns and negative results. Throughput counts
 successful completions from first arrival to last final status. TTFT is
 missing if no token returns; separately report end-to-end time, actual prompt
@@ -768,7 +773,8 @@ costs, and retain failures and cancellations.
 
 Compare median TTFT, p95 TTFT (the 95th-percentile wait) and successful
 requests per second against the native engine. Estimate confidence
-intervals at the draft 95\% confidence level using 2,000 bootstrap resamples
+intervals at the draft \texttt{CONFIDENCE\_LEVEL} using
+\texttt{BOOTSTRAP\_RESAMPLES} bootstrap resamples
 of complete paired trials; record the random seed. Requests within one trial are not independent
 repetitions. Use the conservative interval bounds to decide whether an
 improvement or allowed slowdown has been demonstrated.
@@ -794,7 +800,7 @@ cannot prove accuracy, and output consistency does not prove factual correctness
 \item \phantomsection\label{req:NFR-05}
 \textbf{NFR-05 --- Keep the selected model's output consistent}\par
 Each approved setup shall pass the logit and generated-token checks in the KV prediction and reuse rules on its declared test set.\par
-\textbf{Check.} Apply the draft logit tolerances in the accuracy checks above. Require identical greedy output for 32 tokens or an earlier shared stop. Mismatches prevent approval; do not change limits after failed final tests.\par
+\textbf{Check.} Apply the draft logit tolerances in the accuracy checks above. Require identical greedy output for \texttt{GREEDY\_TOKENS} tokens or an earlier shared stop. Mismatches prevent approval; do not change limits after failed final tests.\par
 \textbf{Why.} Draft tolerances need OI3 review.
 
 
@@ -824,14 +830,14 @@ Publish and test the supported prompt lengths, concurrency and memory limits for
 \item \phantomsection\label{req:NFR-07}
 \textbf{NFR-07 --- Handle more requests without excessive delay}\par
 On at least one preselected shared-history workload, Tandem shall improve throughput within the permitted p95 TTFT increase.\par
-\textbf{Check.} Require confidence intervals showing higher throughput and a p95 TTFT increase no greater than 5\% of the native value, with no extra failures. Record requests and arrival times.\par
+\textbf{Check.} Require confidence intervals showing higher throughput and a p95 TTFT increase no greater than \texttt{REGRESSION\_LIMIT} times the native value, with no extra failures. Record requests and arrival times.\par
 \textbf{Why.} Capacity gains must retain acceptable delay.
 
 
 \item \phantomsection\label{req:NFR-08}
 \textbf{NFR-08 --- Limit slowdowns for normal requests}\par
 For requests that do not use prediction, Tandem shall keep latency increases and throughput losses within the allowed limit.\par
-\textbf{Check.} Use the conservative confidence-interval bounds: median and p95 TTFT may increase by at most 5\% of their native values, and throughput may fall by at most the same fraction. Excess uncertainty is inconclusive.\par
+\textbf{Check.} Use the conservative confidence-interval bounds: median and p95 TTFT may increase by at most \texttt{REGRESSION\_LIMIT} times their native values, and throughput may fall by at most the same fraction. Excess uncertainty is inconclusive.\par
 \textbf{Why.} Bound integration overhead.
 \end{itemize}
 
@@ -990,7 +996,7 @@ The following decisions still need to be made or confirmed:
 \toprule ID & What needs deciding & When it is needed\\\midrule\endhead
 OI1 & Choose the source/target LLM pair, predictor architecture, token/layer alignment, paired KV dataset and any fitting/training procedure. & During the proof of concept; before prediction is enabled under \hyperref[req:FR-14]{\texttt{FR-14}}.\\
 OI2 & Choose exact software/model versions, calculation settings and GPU hardware. & Before correctness and timing tests.\\
-OI3 & Approve cache-error reporting, downstream output tolerances and acceptable slowdown for the chosen predictor. Review the strict draft output checks using development data and normal-run variation. & Before final held-out evaluation; do not adjust limits to rescue failed final tests.\\
+OI3 & Approve cache-error reporting, downstream output tolerances and acceptable slowdown for the chosen predictor. Review the draft settings in Table~\ref{tab:symbolic-constants} using development data and normal-run variation. & Before final held-out evaluation; do not adjust limits to rescue failed final tests.\\
 OI4 & Ask potential users or representatives for feedback and record which requirements it affects. & Before approving the SRS for submission.\\
 OI5 & Align the Problem Statement, Development Plan and Hazard Analysis with target-KV prediction from source KV, predictor development/training and engine integration. Keep base-LLM training and router development outside scope. & Before final technical task assignments and the proof-of-concept review.\\
 OI6 & Review cache-related risks in the Hazard Analysis and keep assumptions and mitigations consistent with the SRS. & During the SRS/Hazard Analysis review.\\
@@ -1144,6 +1150,40 @@ LC4: Preapproval threshold revisions need versioned values/reasons.
 UC1: Base-LLM training and routing remain external.
 UC2: Initial execution remains on one server.
 UC3: Reuse retains exact-prefix and permission checks, not semantic similarity.
+
+\section{Appendix --- Symbolic Constants}
+\label{sec:symbolic-constants}
+
+These are the existing SRS values. All remain drafts under OI3 and need
+review before final tests. The reasons below explain their intended use;
+they do not mean the values have been validated. Record each approved
+revision and its reason under LC4, then update any values copied into the
+V\&V Plan.
+
+\begin{longtable}{@{}p{0.34\textwidth}p{0.10\textwidth}p{0.12\textwidth}p{0.34\textwidth}@{}}
+\caption{Draft settings used by the requirements}\label{tab:symbolic-constants}\\
+\toprule \textbf{Constant} & \textbf{Value} & \textbf{Unit} & \textbf{Reason and status}\\
+\midrule
+\endfirsthead
+\toprule \textbf{Constant} & \textbf{Value} & \textbf{Unit} & \textbf{Reason and status}\\
+\midrule
+\endhead
+\texttt{SCORE\_ATOL} & 0.001 & score & Draft. Allows small score differences near zero.\\
+\texttt{SCORE\_RTOL} & 0.001 & ratio & Draft. Scales the allowed difference with the native score's size.\\
+\texttt{GREEDY\_TOKENS} & 32 & tokens & Draft. Checks agreement beyond the first generated token while keeping the check short.\\
+\texttt{REGRESSION\_LIMIT} & 0.05 & ratio & Draft. Caps overhead while allowing a small change from native serving.\\
+\texttt{CONFIDENCE\_LEVEL} & 0.95 & ratio & Draft. Keeps the same confidence level across comparisons.\\
+\texttt{BOOTSTRAP\_RESAMPLES} & 2,000 & draws & Draft. Balances interval estimation with analysis time.\\
+\texttt{WARMUP\_RUNS} & 3 & runs & Draft. Reduces first-run effects before collecting timings.\\
+\texttt{TIMED\_PAIRS} & 10 & pairs & Draft. Starts with repeated matched timings; add pairs if uncertainty is too large.\\
+\texttt{LEAK\_CYCLES} & 100 & cycles & Draft. Repeats cleanup paths to expose leaks that build up.\\
+\texttt{DEFAULT\_TIMEOUT} & 120 & s & Draft. Gives requests a finite default timeout that deployments can override.\\
+\bottomrule
+\end{longtable}
+
+Ratio values are fractions of one. The V\&V Plan's \texttt{TEST\_TIMEOUT}
+is a separate, shorter timeout for lifecycle tests; it does not change
+\texttt{DEFAULT\_TIMEOUT}.
 
 \section{Appendix --- Generative AI Use Disclosure}
 
