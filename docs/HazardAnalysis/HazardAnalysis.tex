@@ -28,7 +28,7 @@
 \input{../Comments.text}
 \input{../Common.text}
 
-\newcommand{\srs}{\href{../SRS-Volere/SRS.pdf}{SRS}}
+\newcommand{\srs}{\href{https://tandemkv.github.io/Tandem/SRS-Volere/SRS.pdf}{SRS}}
 
 \begin{document}
 
@@ -51,6 +51,10 @@ Nov 8, 2026 & William Pol & Cite FR-01 and FR-07 in place of SR-07 and
 SR-08, which the SRS merged into them; use the VnV Plan's test IDs\\
 Nov 20, 2026 & Manav Patel & Add the suffix-processing hazard H16 and
 loader failure F22; link them to FR-02, FR-05 and the V\&V tests.\\
+Nov 21, 2026 & William Pol & Address the grading and peer-review feedback:
+add H17 (predicted state reused on later turns) with F23 and F24; cite FR-17
+for F8; move SR-09 to SR-15 and their constants into the SRS; remove the
+open to-do notes; link the SRS to its published PDF\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -74,7 +78,8 @@ semantic router sends the next turn of a conversation to a different model,
 processing the whole conversation history again (prefill). The prediction
 is approximate, so much of this analysis concerns how a wrong prediction is
 caught before it reaches the user. The Software Requirements
-Specification (\srs{}) describes the requirements this analysis refers to.
+Specification (\srs{}) \cite{TandemSRS} describes the requirements this
+analysis refers to.
 
 A \emph{hazard} is a condition of \progname{} that, together with a
 condition in its environment, can lead to a loss. \progname{} does not
@@ -173,7 +178,7 @@ The components below come from the context and work partitioning in the
 \section{Critical Assumptions}
 \label{sec:assumptions}
 
-The \srs{} lists assumptions A1--A6. Only the following affect which
+The \srs{} lists assumptions A1--A7. Only the following affect which
 hazards are analyzed:
 
 \begin{itemize}
@@ -246,10 +251,14 @@ prefill, so reuse slows the request instead of speeding it up. &
 H16 & After accepting a cache, the loader skips or repeats prompt tokens,
 uses wrong suffix positions, or decodes with a different model than the
 router chose. & \ref{loss:wrong}, \ref{loss:waste}\\
+H17 & A predicted cache, once loaded, is reused on a later turn as if the
+target model had computed it, or becomes the source of another prediction,
+so its error is carried forward unchecked. & \ref{loss:wrong},
+\ref{loss:claims}\\
 \bottomrule
 \end{longtable}
 
-Three hazards need context.
+Four hazards need context.
 
 \paragraph{H8, approximate prediction.} Unlike same-model prefix caching,
 predicting one model's KV cache from another's does not reproduce the
@@ -262,6 +271,15 @@ stay close to the target's own results \cite{Yun2026HeteroFold}. A cache
 with the right shape and a passing compatibility check is therefore not
 necessarily good enough, and a predictor that scores well on the
 conversations it was fitted on may not do so on new ones.
+
+\paragraph{H17, predicted state reused on later turns.} After a model
+switch, the predicted cache is loaded into the target model's KV memory and
+becomes part of that conversation's cached prefix. If the next turn goes to
+the same model, the engine's own prefix caching reuses it as if it were exact,
+skips the SR-10 check, and records the turn as native processing. In a
+multi-model workflow that switches back and forth, such as SmolLM, Qwen, Qwen,
+SmolLM, a predicted cache could also become the source of the next
+prediction, so errors could build up across switches.
 
 \paragraph{H9, altered cache.} Retained KV state can change a model's
 behaviour even when the text that produced it is no longer part of the
@@ -340,8 +358,9 @@ prefill & FR-07, FR-16 & H1, H6\\
 F8 & KV cache predictor & Prediction and loading take longer than native
 prefill & Slower first token than without \progname{} & Short shared
 history; large predictor; slow loading path & TTFT benchmarks against
-native prefill (T-PERF-1) & Use prediction only where tests show a gain;
-otherwise use native prefill & NFR-04, NFR-08 & H15\\
+native prefill (T-PERF-1) & Predict only when the shared history is at
+least \texttt{MIN\_REUSE\_TOKENS} long, set from the measured break-even
+length; otherwise use native prefill & FR-17, NFR-04 & H15\\
 F9 & Compatibility checker & Reuses a cache from another request's sharing
 group & Private history exposed & Sharing group not checked; request names
 its own group & Cross-group isolation tests (T-ISOLATION-1) & Sharing group
@@ -408,6 +427,17 @@ T-CACHE-3) & After prefix validation, derive the suffix from the target
 tokenization of the full prompt. Check that the accepted target-prefix
 length plus suffix length equals full prompt length. Use the router-selected
 model and revision for suffix prefill and decoding & FR-02, FR-05 & H16\\
+F23 & KV loader & A later turn reuses predicted positions as if the target
+model had computed them & Approximate answer recorded as native; no run-time
+check & Engine prefix cache keeps predicted blocks without marking them &
+Turn records in a SmolLM, Qwen, Qwen, SmolLM conversation (T-CACHE-4) & Mark
+predicted positions; record later reuse as predicted; allow it only if the
+SR-09 approval covered multi-turn sequences, otherwise recompute natively &
+SR-15, FR-10 & H17\\
+F24 & KV cache predictor & A predicted cache is used as the source of
+another prediction & Errors build up across model switches & Source cache
+chosen without checking how it was made & Same test, fourth turn (T-CACHE-4)
+& Never use predicted positions as a prediction source & SR-15 & H17\\
 \bottomrule
 \end{longtable}
 \end{landscape}
@@ -415,38 +445,74 @@ model and revision for suffix prefill and decoding & FR-02, FR-05 & H16\\
 \section{Safety and Security Requirements}
 \label{sec:requirements}
 
-The existing \srs{} requirements SR-01 to SR-06, FR-01 and FR-07 mitigate H1--H7 and are
-referenced in Table~\ref{tab:fmea}. The analysis found the following new
-requirements, which should be added to the \srs{} security and robustness
-sections. Their fit criteria use the constants in
+The \srs{} requirements SR-01 to SR-06, FR-01 and FR-07 mitigate H1--H7 and
+are referenced in Table~\ref{tab:fmea}. This analysis found the further
+requirements below. They are now part of the \srs{}, with their fit criteria,
+priorities and traceability; they are summarized here with the hazard each
+one mitigates. Their constants are defined, with values and reasons, in
 Table~\ref{tab:constants}.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Constants used by the requirements below (from the \srs{}
+symbolic-constants appendix; draft values reviewed before final tests)}
+\label{tab:constants}
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule Constant & Value & Meaning\\\midrule
+\texttt{QUALITY\_LOSS\_LIMIT} & 0.05 F1 & Largest accepted drop in task score
+for a cross-model setup\\
+\texttt{CANARY\_TOKENS} & 16 tokens & Final history tokens recomputed by the
+run-time check\\
+\texttt{CANARY\_LIMIT} & 0.5 & Largest relative error between the recomputed
+and predicted keys and values at those tokens\\
+\texttt{CANARY\_DETECTION\_MIN} & 0.9 & Fraction of bad caches the check
+must catch\\
+\texttt{CANARY\_FALSE\_FALLBACK\_MAX} & 0.1 & Largest fraction of good caches
+the check may reject\\
+\texttt{FALLBACK\_WINDOW} & 100 requests & Recent requests used to compute the
+fallback rate\\
+\texttt{FALLBACK\_RATE\_LIMIT} & 0.5 & Fallback rate above which prediction
+is turned off\\
+\texttt{QUEUE\_LIMIT} & 32 requests & Requests that may wait for prefill
+before further requests are rejected\\
+\texttt{PREDICTED\_CACHE\_LIMIT} & 2 GiB & Memory allowed for predicted but
+unused caches\\
+\texttt{PREDICTED\_CACHE\_TTL} & 60 s & Time after which an unused predicted
+cache is released\\
+\texttt{MIN\_REUSE\_TOKENS} & 512 tokens & Shortest shared history for which
+prediction is used\\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 \begin{description}[style=nextline]
   \item[SR-09 --- Limit the quality loss of each cross-model setup (H8)]
-  \progname{} shall enable a cross-model setup only if, on its declared test
-  set, which shares no conversations with the data used to fit the
-  predictor, the selected model's task scores with the predicted cache are
-  no more than \texttt{QUALITY\_LOSS\_LIMIT} below its scores with native
-  prefill. \emph{Fit criterion:} T-QUAL-2 compares both runs on the same test
-  set; a setup above the limit stays disabled.
-  \item[SR-10 --- Check predicted caches at run time (H8)] For each reuse,
-  \progname{} shall recompute the last \texttt{CANARY\_TOKENS} tokens of
-  the shared history with the target model, using the predicted cache for
-  all earlier positions, and compare the recomputed keys and values with
-  the predicted ones at those positions. If the difference exceeds
-  \texttt{CANARY\_LIMIT}, it shall use native prefill. The check costs
-  about \texttt{CANARY\_TOKENS} tokens of prefill, not the whole history.
-  It detects badly wrong predictions but does not prove a cache correct;
-  SR-09 provides the comparison with native prefill. \emph{Fit criterion:}
-  a test injects a degraded cache and checks that the request falls back
-  and records the reason; T-PERF-1 shows that the check keeps time to first
-  token below native prefill for supported setups.
+  \progname{} shall approve a cross-model setup only if, on a test set that
+  shares no conversations with the predictor's training data, the selected
+  model's task score with the predicted cache is at most
+  \texttt{QUALITY\_LOSS\_LIMIT} below its score with native prefill.
+  \emph{Fit criterion:} T-QUAL-2 compares both runs on the same test set; a
+  setup above the limit stays disabled.
+  \item[SR-10 --- Check predicted caches at run time (H8)] The run-time
+  \emph{canary} check recomputes the last \texttt{CANARY\_TOKENS} tokens of
+  the shared history with the target model, using the predicted cache for all
+  earlier positions, and compares the recomputed keys and values with the
+  predicted ones at those positions. If the relative error exceeds
+  \texttt{CANARY\_LIMIT}, \progname{} uses native prefill. The \srs{} FR-16
+  allows this bounded recomputation and no other target prefill over the
+  history. Because the recomputed tokens attend to the predicted positions,
+  prefix errors can carry into them, so the check cannot prove a cache
+  correct. \emph{Fit criterion:} on development data, the check catches at
+  least \texttt{CANARY\_DETECTION\_MIN} of the caches whose greedy output
+  differs from native, and rejects at most \texttt{CANARY\_FALSE\_FALLBACK\_MAX}
+  of those whose output matches (T-FB-3); T-PERF-1 shows that the check keeps
+  time to first token below native prefill.
   \item[SR-11 --- Check cache integrity (H9)] Each predicted cache shall
   carry a checksum and a record of its source model and predictor version;
-  \progname{} shall reject a cache whose checksum or record does not
-  match. \emph{Fit
-  criterion:} a test alters one byte of a cache and checks that it is
-  rejected.
+  \progname{} shall reject a cache whose checksum or record does not match.
+  \emph{Fit criterion:} a test alters one byte of a cache and checks that it
+  is rejected.
   \item[SR-12 --- Limit exposure to timing leaks (H10)] Each conversation
   shall use its own reuse domain unless the host explicitly assigns a shared
   one. The documentation shall state that a user in a shared domain may infer
@@ -460,65 +526,35 @@ Table~\ref{tab:constants}.
   fallback prefills only within the engine's configured prefill budget,
   queue at most \texttt{QUEUE\_LIMIT} further requests, and reject any
   beyond that with a status telling the caller to retry, rather than
-  letting them time out. It shall also turn cross-model reuse off
+  letting them time out. It shall also turn cross-model prediction off
   automatically when the fallback rate over the last
   \texttt{FALLBACK\_WINDOW} requests exceeds \texttt{FALLBACK\_RATE\_LIMIT},
-  so no prediction work is wasted, and report this to the operator.
+  and report this to the operator.
   \emph{Fit criterion:} a test invalidates all caches at once under load;
   admitted requests stay within \texttt{REGRESSION\_LIMIT} of the same load
   without \progname{} (NFR-08), excess requests receive the retry status
-  instead of timing out, and reuse is turned off.
+  instead of timing out, and prediction is turned off.
   \item[SR-14 --- Bound memory for predicted caches (H12)] Memory held by
   predicted but unused caches shall not exceed
-  \texttt{PREDICTED\_CACHE\_LIMIT}, and unused caches shall expire after
+  \texttt{PREDICTED\_CACHE\_LIMIT}, and unused caches shall be released after
   \texttt{PREDICTED\_CACHE\_TTL}. \emph{Fit criterion:} a test predicts
   caches that are never used and checks that memory stays within the limit.
+  \item[SR-15 --- Keep predicted positions marked on later turns (H17)]
+  \progname{} shall record which cached positions were predicted. A later
+  turn that reuses them shall be recorded as predicted reuse and allowed only
+  if the setup's SR-09 approval covered multi-turn sequences; otherwise those
+  positions are recomputed natively. Predicted positions shall never be the
+  source of another prediction. \emph{Fit criterion:} T-CACHE-4 routes a
+  conversation SmolLM, Qwen, Qwen, SmolLM; the third turn's record marks its
+  reused positions as predicted, and the fourth turn's prediction uses no
+  predicted positions.
 \end{description}
 
-\begin{table}[h]
-\centering
-\caption{New constants (values to be set by the team)}
-\label{tab:constants}
-\begin{tabularx}{\textwidth}{@{}lX@{}}
-\toprule Constant & Meaning\\\midrule
-\texttt{QUALITY\_LOSS\_LIMIT} & Largest accepted drop in task score for a
-cross-model setup. \todo{choose a value with the team and advisor}\\
-\texttt{CANARY\_TOKENS} & Number of final history tokens recomputed for
-the run-time check. \todo{choose a value}\\
-\texttt{CANARY\_LIMIT} & Largest accepted difference between the
-recomputed and predicted keys and values for those tokens.
-\todo{choose a value}\\
-\texttt{FALLBACK\_WINDOW} & Number of recent requests used to compute the
-fallback rate. \todo{choose a value}\\
-\texttt{FALLBACK\_RATE\_LIMIT} & Fallback rate above which reuse is turned
-off. \todo{choose a value}\\
-\texttt{QUEUE\_LIMIT} & Number of requests that may wait for prefill
-before further requests are rejected. \todo{choose a value}\\
-\texttt{PREDICTED\_CACHE\_LIMIT} & Memory allowed for predicted but unused
-caches. \todo{choose a value}\\
-\texttt{PREDICTED\_CACHE\_TTL} & Time after which an unused predicted cache
-expires. \todo{choose a value}\\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\paragraph{Changes needed in the \srs{}.}
-\begin{itemize}
-  \item Add SR-09 to SR-14, their constants, and H8--H15 to the traceability
-  table, which resolves open issue OI6. FR-16 should also trace to H8, H13
-  and H15, not only H1 and H3.
-  \item Trace the existing FR-02 and FR-05 requirements to H16. F22 covers
-  how the loader joins an accepted prefix to the remaining prompt and
-  keeps the router-selected model.
-  \item \textbf{NFR-05 conflicts with H8.} NFR-05 requires every reuse
-  setup to match the native scores within \texttt{SCORE\_ATOL} and to
-  produce identical greedy tokens. The \srs{} itself states that cache
-  prediction may be approximate, so no cross-model setup could pass, and
-  FR-14 would never enable reuse. NFR-05
-  should keep the exact check for same-model reuse and use SR-09 and SR-10
-  for cross-model reuse. \todo{agree on this change with the SRS author}
-  \item Note in A1 that H9 is still analyzed (Section~\ref{sec:assumptions}).
-\end{itemize}
+In the \srs{}, FR-17 (predict only for histories of at least
+\texttt{MIN\_REUSE\_TOKENS}) now implements F8's recommended action, and
+FR-02 and FR-05 trace to H16. NFR-05's exact output check applies to
+same-model reuse only; cross-model reuse is checked by SR-09 and SR-10, so the
+conflict between NFR-05 and H8 is resolved.
 
 \section{Roadmap}
 \label{sec:roadmap}
@@ -544,8 +580,10 @@ corruption.\\
 SR-12 (default reuse-domain isolation) & Capstone & Use a separate domain for
 each conversation unless the host explicitly enables sharing, and document the
 accepted within-domain timing risk.\\
-SR-13, SR-14 & Capstone, after the core path works & Needed for load tests,
-but depend on the reuse path.\\
+SR-15 & Capstone & Needed as soon as a conversation can return to a model
+after a predicted turn (H17).\\
+SR-13, SR-14, FR-17 & Capstone, after the core path works & Needed for load
+tests and the benchmark, but depend on the reuse path.\\
 Signed caches and caches uploaded by users & Future & A1 excludes untrusted
 sources in the first release; accepting them would need authentication of
 the cache source.\\
@@ -582,6 +620,10 @@ Claude Code, running Claude Opus 5.5 (Anthropic).
   \item \textbf{Literature:} Claude found the three papers cited for H8,
   H9 and H10, and checked their titles, authors and the reported numbers on
   the arXiv pages and the HeteroFold repository.
+  \item \textbf{November revision:} William Pol used Claude Code (version
+  2.1.329) with the Claude Opus 5.5 model to add H17, F23 and F24, update F8,
+  and move SR-09 to SR-15 into the SRS from the grading and peer-review
+  feedback.
 \end{itemize}
 
 \subsection{Verification of AI-Generated Content}

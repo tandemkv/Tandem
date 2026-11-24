@@ -61,6 +61,9 @@ Nov 8, 2026 & 0.3 & Address peer review issues \#66, \#67 and \#69--\#71.\\
 Nov 21, 2026 & 0.4 & Address grading feedback and peer review issue \#68:
 T-QUAL-2 pass rule, test details, Figure~\ref{fig:gates}, walkthrough
 checklist and links to the published documents.\\
+Nov 21, 2026 & 0.5 & Follow SRS version 1.0: SR-09 to SR-15 now in the
+SRS; add \tref{T-CACHE-4} (SR-15) and the short-history case of
+\tref{T-FB-1} (FR-17); \tref{T-FB-3} counts toward approval.\\
 \bottomrule
 \end{tabularx}
 \end{minipage}
@@ -753,26 +756,47 @@ explicitly.
 run on the cluster.
 \end{testcase}
 
+\begin{testcase}{T-CACHE-4}{Predicted positions stay marked on later turns}
+\item[Control] Automatic
+\item[Initial state] Setup S with the test trace enabled; the setup's SR-09
+approval does not cover multi-turn sequences.
+\item[Input] A 4-turn conversation on fixture F1 at 512 tokens, routed
+SmolLM, Qwen, Qwen, SmolLM.
+\item[Output] Turn 2 uses a predicted cache and its record lists the
+predicted positions. Turn 3 records those positions as predicted and, because
+the approval does not cover multi-turn reuse, recomputes them natively with
+reason \texttt{predicted\_positions}. Turn 4's prediction source contains no
+predicted positions. Greedy output of turns 3 and 4 equals the native
+reference.
+\item[Derivation] SR-15: predicted state must not be reused as if the target
+model had computed it, or become the source of another prediction (HA H17).
+\item[How performed] End-to-end test reading the records at every turn.
+\end{testcase}
+
 \subsubsection{Fallback and Failure Handling}
 
 These tests cover native processing (FR-06), recovery from failures
-(FR-07, NFR-06) and the run-time check (SR-10, HA Section~7).
+(FR-07, NFR-06) and the run-time check (SR-10, SRS Section~15.2).
 
 \begin{testcase}{T-FB-1}{Normal processing is used when reuse does not
 apply}
 \item[Control] Automatic
 \item[Initial state] Setup S.
-\item[Input] Five cases on test-set prompts: a turn on the same model; a
+\item[Input] Six cases on test-set prompts: a turn on the same model; a
 first turn with no history; a missing source cache; a switch from Qwen to
-SmolLM (no translator for that direction); prediction switched off.
+SmolLM (no translator for that direction); prediction switched off; a
+switch from SmolLM to Qwen with a history shorter than
+\cst{MIN\_REUSE\_TOKENS}.
 \item[Output] No case uses a predicted cache. Each records its reason code
 (\texttt{same\_model}, \texttt{no\_history}, \texttt{no\_source\_cache},
-\texttt{unsupported\_pair} and \texttt{prediction\_off}, in order) and
+\texttt{unsupported\_pair}, \texttt{prediction\_off} and
+\texttt{below\_min\_length}, in order) and
 gives greedy output equal to the native reference for
 \cst{GREEDY\_TOKENS} tokens. The same-model turn may reuse its own cache,
 as in the common setup.
 \item[Derivation] FR-06 requires native processing to stay available and
-unchanged when reuse is unavailable or unsuitable.
+unchanged when reuse is unavailable or unsuitable; FR-17 requires it for
+histories too short to gain.
 \item[How performed] End-to-end test.
 \end{testcase}
 
@@ -813,10 +837,8 @@ the check catches at least \cst{CANARY\_DETECTION\_MIN} of the bad caches,
 and rejects at most \cst{CANARY\_FALSE\_FALLBACK\_MAX} of the good ones. A
 cache is bad if its greedy output differs from the native reference within
 \cst{GREEDY\_TOKENS} tokens, and good otherwise.
-\item[Derivation] SR-10 fit criterion. Peer review issue \#41 questions
-whether SR-10 is consistent with FR-16. Until the SRS permits the bounded
-recomputation, the check is enabled only in the test configuration, and
-results are reported without counting toward approval. A canary passing
+\item[Derivation] SR-10 fit criterion. SRS FR-16 permits this bounded
+recomputation of at most \cst{CANARY\_TOKENS} history tokens. A canary passing
 its own check is not evidence that output quality passes; that is
 \tref{T-QUAL-2}.
 \item[How performed] End-to-end test on the cluster.
@@ -826,7 +848,7 @@ its own check is not evidence that output quality passes; that is
 
 These tests cover output delivery (FR-08), memory release (FR-09),
 cancellation (FR-15) and memory held by caches (SR-03 in SRS
-Section~15.2; SR-14 in HA Section~7). They run against the runner first,
+Section~15.2; SR-14 in SRS Section~12.5). They run against the runner first,
 then the serving integration (Section~\ref{sec:schedule}).
 
 \paragraph{Shared setup for \tref{T-LIFE-1a} to \tref{T-LIFE-1d}.} Each
@@ -963,7 +985,7 @@ FR-12. The second is marked invalid, naming the differing setting.
 
 These tests cover sharing between users (SR-01 and SR-04), the default
 reuse-domain policy (SR-12), stale caches (SR-05) and logs (SR-06), from SRS
-Section~15.3 and HA Section~7. SR-12 does not claim to hide timing inside a
+Section~15.3. SR-12 does not claim to hide timing inside a
 shared domain; that residual risk is checked by documentation review.
 
 \begin{testcase}{T-ISOLATION-1}{No reuse outside a host-assigned domain}
@@ -1022,7 +1044,7 @@ run.
 
 \subsection{Tests for Nonfunctional Requirements}
 
-Accuracy tests (SRS Section~12.3, HA SR-09) compare against the native
+Accuracy tests (SRS Section~12.3 and SR-09) compare against the native
 reference, and their analysis is in the ML Model Report. Performance tests
 (SRS Sections~12.1 and~12.5) are
 experiments: their output is a table and a plot, and pass or fail is
@@ -1079,7 +1101,7 @@ conditions. The exact checks of NFR-05 apply to same-model replay
 checkpoint and thresholds before final data is inspected. Report every
 length and bootstrap complete prompts, not correlated token positions.
 Answer F1 uses the HotpotQA answer labels with an answer budget long
-enough for every reference answer. Traces to FR-14, FR-16 and HA SR-09.
+enough for every reference answer. Traces to FR-14, FR-16 and SR-09.
 \end{testcase}
 
 \subsubsection{Performance}
@@ -1105,7 +1127,10 @@ bound of the native median, with \tref{T-QUAL-2} passing. Every other
 length is reported, including slowdowns.
 \item[How performed] Benchmark script; results and command committed and
 analysed in the Performance Report. Also verifies the SR-10 fit criterion
-that the check keeps TTFT below native.
+that the check keeps TTFT below native, and FR-17: the shortest length at
+which the translated arm's upper bound is below the native median is the
+break-even length that sets \cst{MIN\_REUSE\_TOKENS}, and every length at or
+above it must meet that bound.
 \end{testcase}
 
 \begin{testcase}{T-PERF-2}{Serving benchmark}
@@ -1208,6 +1233,7 @@ splits)\\
 FR-15 & \tref{T-LIFE-1a} to \tref{T-LIFE-1c} & \\
 FR-16 & \tref{T-CACHE-2}, \tref{T-QUAL-2} & ML Model Report (per-layer
 error, metamorphic checks)\\
+FR-17 & \tref{T-FB-1}, \tref{T-PERF-1} & \\
 NFR-01 & \tref{T-DOC-1} & \\
 NFR-02 & \tref{T-DOC-1} & \\
 NFR-03 & \tref{T-IN-2} & \\
@@ -1218,6 +1244,7 @@ NFR-07 & \tref{T-PERF-2} & Performance Report\\
 NFR-08 & \tref{T-PERF-2} & Performance Report\\
 NFR-09 & \tref{T-IN-1} & \\
 NFR-10 & \tref{T-DOC-2} & \\
+NFR-11 & \tref{T-DOC-1} & \\
 NFR-12 & \tref{T-DOC-1} & \\
 SR-01 & \tref{T-ISOLATION-1} & \\
 SR-02 & \tref{T-CACHE-1} & Seeded fault\\
@@ -1225,12 +1252,13 @@ SR-03 & \tref{T-LIFE-2} & \\
 SR-04 & \tref{T-ISOLATION-2} & \\
 SR-05 & \tref{T-CONF-1} & \\
 SR-06 & \tref{T-ISOLATION-3} & \\
-SR-09 (HA) & \tref{T-QUAL-2}, \tref{T-CONF-1} & \\
-SR-10 (HA) & \tref{T-FB-3}, \tref{T-PERF-1} & \\
-SR-11 (HA) & \tref{T-CACHE-1} & \\
-SR-12 (HA) & \tref{T-ISOLATION-1} & Review of the shared-domain timing-risk statement\\
-SR-13 (HA) & \tref{T-PERF-2} & \\
-SR-14 (HA) & \tref{T-LIFE-2} & \\
+SR-09 & \tref{T-QUAL-2}, \tref{T-CONF-1} & \\
+SR-10 & \tref{T-FB-3}, \tref{T-PERF-1} & \\
+SR-11 & \tref{T-CACHE-1} & \\
+SR-12 & \tref{T-ISOLATION-1} & Review of the shared-domain timing-risk statement\\
+SR-13 & \tref{T-PERF-2} & \\
+SR-14 & \tref{T-LIFE-2} & \\
+SR-15 & \tref{T-CACHE-4} & \\
 DR-01 & \tref{T-DOC-1} & Checklist review\\
 DR-02 & \tref{T-DOC-1} & \\
 \bottomrule
@@ -1308,11 +1336,11 @@ loss (SRS NFR-07, NFR-08)\\
 \cst{LEAK\_CYCLES} & 100 & Completion/failure/cancellation cycles (SRS
 FR-09)\\
 \cst{QUALITY\_LOSS\_LIMIT} & 0.05 & Largest allowed drop in HotpotQA answer
-F1 (absolute) against native prefill (HA SR-09)\\
+F1 (absolute) against native prefill (SRS SR-09)\\
 \cst{CANARY\_TOKENS} & 16 & Final history tokens recomputed by the run-time
-check (HA SR-10)\\
+check (SRS SR-10)\\
 \cst{CANARY\_LIMIT} & 0.5 & Largest relative K/V error at those tokens
-(HA SR-10)\\
+(SRS SR-10)\\
 \cst{CANARY\_DETECTION\_MIN} & 0.9 & Fraction of bad predicted caches the
 run-time check must catch (\tref{T-FB-3}). The check backs up the test-set
 approval in SR-09 rather than replacing it, so it need not catch every bad
@@ -1321,16 +1349,18 @@ cache.\\
 predicted caches the check may reject (\tref{T-FB-3}). Each wrong rejection
 pays for prediction and the check, then full prefill, so a higher rate would
 eat into the TTFT gain NFR-04 requires.\\
-\cst{FALLBACK\_WINDOW} & 100 requests & Window for the fallback rate (HA
+\cst{MIN\_REUSE\_TOKENS} & 512 tokens & Shortest history for which
+prediction is used (SRS FR-17)\\
+\cst{FALLBACK\_WINDOW} & 100 requests & Window for the fallback rate (SRS
 SR-13)\\
-\cst{FALLBACK\_RATE\_LIMIT} & 0.5 & Fallback rate that turns reuse off (HA
+\cst{FALLBACK\_RATE\_LIMIT} & 0.5 & Fallback rate that turns reuse off (SRS
 SR-13)\\
-\cst{QUEUE\_LIMIT} & 32 requests & Requests that may wait for prefill (HA
+\cst{QUEUE\_LIMIT} & 32 requests & Requests that may wait for prefill (SRS
 SR-13)\\
 \cst{PREDICTED\_CACHE\_LIMIT} & 2 GiB & Memory for unused predicted caches
-(HA SR-14)\\
+(SRS SR-14)\\
 \cst{PREDICTED\_CACHE\_TTL} & 60 s & Lifetime of an unused predicted cache
-(HA SR-14)\\
+(SRS SR-14)\\
 \cst{TEST\_PROMPTS} & 50 & Held-out test prompts, document-disjoint from
 training and selection data\\
 \cst{CONTEXT\_LENGTHS} & 128, 512, 1,024 tokens & History lengths tested,
