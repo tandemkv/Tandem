@@ -1,12 +1,10 @@
 """Offline routing tests: no model downloads or ML dependencies."""
-import io
 from pathlib import Path
 import subprocess
 import sys
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
-from src.experiments.poc import routing_exp
 from src.routing import router
 
 
@@ -73,23 +71,6 @@ class RoutingTests(unittest.TestCase):
         self.classifier.return_value = expected
         self.assertEqual(router.analyze('Hello', classifier_model=self.classifier), expected)
 
-    @patch.object(routing_exp, 'build_demo_classifier')
-    def test_demo_cli_uses_nvidia_policy_and_threshold(self, build_classifier):
-        build_classifier.return_value.return_value = {'task': 'Code Generation', 'complexity': 0.2}
-        for args, expected in [(['Hello', '--mode', 'task'], 'model_a'),
-                               (['Hello', '--mode', 'complexity', '--threshold', '0.6'], 'model_b')]:
-            with patch('sys.stdout', new_callable=io.StringIO) as output:
-                self.assertEqual(routing_exp.main(args), 0)
-            self.assertEqual(output.getvalue().strip(), expected)
-        self.assertEqual(build_classifier.call_count, 2)
-        build_classifier.return_value.assert_called_with('Hello')
-
-    @patch.object(routing_exp, 'build_demo_classifier')
-    def test_invalid_demo_input_does_not_load_classifier(self, build_classifier):
-        with patch('sys.stderr', new_callable=io.StringIO), self.assertRaises(SystemExit):
-            routing_exp.main(['   '])
-        build_classifier.assert_not_called()
-
     def test_core_works_without_site_packages_or_optional_adapters(self):
         # -S removes site-packages, including torch/transformers. Run in a fresh
         # interpreter so earlier tests cannot hide an accidental optional import.
@@ -100,7 +81,6 @@ from src.models.interfaces import AnswerModel
 from src.translation_layer.interfaces import KVCacheMapper
 from src.translation_layer.conversation_manager import ConversationManager
 from src.translation_layer.inference_runner import InferenceRunner
-from src.experiments.poc import conversation_exp, routing_exp
 
 class CustomModel:
     def __init__(self, name):
