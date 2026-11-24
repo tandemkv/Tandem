@@ -40,18 +40,13 @@ by the router or inference runner.
 
 ## Qwen/SmolLM/NVIDIA demo
 
-[`demo_setup.py`](../experiments/poc/demo_setup.py) supplies the NVIDIA classifier
+[`demo_setup.py`](../demo/demo_setup.py) supplies the NVIDIA classifier
 and the demo task mapping. `build_demo_runner()` additionally loads Qwen as
 `model_a` and SmolLM as `model_b`, and accepts your KV cache mapper. The task
 mapping sends Code Generation, Open QA, Other, and Unknown to Qwen; other labels
 go to SmolLM. This mapping and the default threshold of 0.5 are experimental.
 
-The routing CLI lives in the demo layer:
-
-```sh
-src/venv/bin/python -m src.experiments.poc.routing_exp --mode task "Write a Python function"
-src/venv/bin/python -m src.experiments.poc.routing_exp --mode complexity --threshold 0.5 "Write a Python function"
-```
+The [demo CLI](../demo/README.md) prints each prompt's task and model. The standalone routing CLI is on the [`experiments` branch](https://github.com/tandemkv/Tandem/tree/experiments/src/experiments/poc).
 
 See the [optional adapter documentation](../adapters/README.md) for dependencies,
 checkpoint revisions, scoring, and licensing. Custom classifiers do not require

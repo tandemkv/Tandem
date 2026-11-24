@@ -3,7 +3,7 @@
 For stateful conversations, use `ConversationManager`:
 
 ```python
-from src.experiments.poc.demo_setup import build_demo_runner
+from src.demo.demo_setup import build_demo_runner
 from src.translation_layer.conversation_manager import ConversationManager
 
 # Optional Qwen/SmolLM/NVIDIA setup with the SmolLM → Qwen cache mapper.

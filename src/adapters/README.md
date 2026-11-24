@@ -36,7 +36,7 @@ configuration revision `8ccc9b6f36199bec6961081d44eb72fb3f7353f3`.
 The optional Hugging Face answer-model implementation remains in
 [`src/models/model.py`](../models/model.py). It implements
 [`AnswerModel`](../models/interfaces.py) using PyTorch and Transformers.
-The [demo setup](../experiments/poc/demo_setup.py) constructs this implementation
+The [demo setup](../demo/demo_setup.py) constructs this implementation
 with Qwen and SmolLM and injects the NVIDIA classifier. Custom implementations
 only need to satisfy the core protocols; they do not need to subclass the
 provided implementations.

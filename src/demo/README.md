@@ -6,7 +6,7 @@ From the repository root, set up the experiment environment and start the intera
 uv venv src/venv
 uv pip install --python src/venv/bin/python torch transformers==5.20.1 huggingface-hub safetensors sentencepiece protobuf
 src/venv/bin/hf auth login   # needs read access to tandemkv/paired-kv-qwen-smollm
-src/venv/bin/python -m src.experiments.poc
+src/venv/bin/python -m src.demo
 ```
 
 Reuse an existing experiment environment by skipping the environment creation

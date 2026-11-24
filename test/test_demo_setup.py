@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from src.experiments.poc.demo_setup import TASK_MODELS, build_demo_runner
+from src.demo.demo_setup import TASK_MODELS, build_demo_runner
 
 
 class DemoSetupTests(unittest.TestCase):
