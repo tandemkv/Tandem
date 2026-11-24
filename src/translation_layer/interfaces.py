@@ -1,5 +1,5 @@
 """Cache-mapper contract, independent of any inference framework."""
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 
 from src.models.interfaces import AnswerModel
 
@@ -16,8 +16,7 @@ class UnsupportedTranslationError(ValueError):
 class KVCacheMapper(Protocol):
     def __call__(self, *, cache: Any, source_model: str, target_model: AnswerModel,
                  conversation_text: str, cached_token_ids: list[int],
-                 prefix_boundary: int, prompt_mode: Literal["chat", "plain"]
-                 ) -> tuple[Any, list[int]]:
+                 prefix_boundary: int) -> tuple[Any, list[int]]:
         """Return a target cache and nonempty, exact uncached target token IDs.
 
         Preserve the source cache. source_model is its checkpoint/provenance

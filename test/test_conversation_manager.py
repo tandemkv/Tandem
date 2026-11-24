@@ -31,8 +31,7 @@ class ConversationTests(unittest.TestCase):
             return 'answer'
 
         def run(prompt, **kwargs):
-            kwargs.pop('is_suffix')
-            kwargs.pop('prompt_mode')
+            kwargs.pop('is_suffix', None)
             return run_tokens([ord(c) for c in prompt], **kwargs)
 
         model.run.side_effect = run
@@ -48,13 +47,13 @@ class ConversationTests(unittest.TestCase):
         suffix = ('\n<|im_start|>user\nHow does that affect time?<|im_end|>\n'
                   '<|im_start|>assistant\n')
         self.runner._models['model_a'].run.assert_called_with(
-            suffix, kv_cache=cache, is_suffix=True, max_new_tokens=100, prompt_mode='chat')
+            suffix, kv_cache=cache, is_suffix=True, max_new_tokens=100)
         self.route.assert_called_with('How does that affect time?', mode='task',
                                       threshold=0.5, task_models={'custom': 'model_a'}, classifier_model=self.classifier,
                                       model_a='model_a', model_b='model_b')
         self.assertEqual(cache.tandem_token_ids, ids)
         self.assertEqual(chat.cached_token_ids, ids + [ord(c) for c in suffix] + [99])
-        self.assertEqual(chat.conversation_text, prefix + suffix + 'answer')
+        self.assertEqual(chat.conversation_text, prefix + suffix + 'answer<|im_end|>')
         self.assertEqual(chat.prefix_boundary, len(chat.conversation_text))
         self.assertEqual(chat.history, [
             {'role': 'user', 'content': 'Explain gravity.'},
@@ -95,7 +94,8 @@ class ConversationTests(unittest.TestCase):
         before = (chat.kv_cache, chat.cached_token_ids[:], chat.history[:],
                   chat.conversation_text, chat.prefix_boundary, chat.current_model)
         self.route.return_value = 'model_b'
-        with self.assertRaisesRegex(ValueError, 'translation is not available'):
+        self.runner.kv_cache_mapper = Mock(side_effect=ValueError('token IDs do not match'))
+        with self.assertRaisesRegex(ValueError, 'token IDs do not match'):
             chat.send('failed')
         self.assertEqual(before, (chat.kv_cache, chat.cached_token_ids, chat.history,
                                  chat.conversation_text, chat.prefix_boundary, chat.current_model))
@@ -104,7 +104,7 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(chat.history[-2]['content'], 'retry')
         self.assertEqual(len(chat.history), 4)
 
-    def test_unsupported_translation_preserves_state_without_running_target(self):
+    def test_unsupported_switch_reruns_the_conversation_natively(self):
         chat = self.conversation
 
         def one_way_mapper(*, source_model, target_model, **kwargs):
@@ -116,23 +116,15 @@ class ConversationTests(unittest.TestCase):
         chat.send('first')
         self.route.return_value = 'model_b'
         chat.send('supported switch')
-        cache = chat.kv_cache
-        before = (chat.cached_token_ids[:], chat.history[:], chat.conversation_text,
-                  chat.prefix_boundary, chat.current_model, cache.tandem_token_ids[:])
         self.route.return_value = 'model_a'
         target = self.runner._models['model_a']
         target.reset_mock()
-        with self.assertRaisesRegex(UnsupportedTranslationError, "'custom/b' to 'custom/a'") as error:
-            chat.send('unsupported switch')
-        self.assertEqual(error.exception.source_model, 'custom/b')
-        self.assertEqual(error.exception.target_model, 'custom/a')
-        self.assertIs(chat.kv_cache, cache)
-        self.assertEqual(before, (chat.cached_token_ids, chat.history, chat.conversation_text,
-                                  chat.prefix_boundary, chat.current_model, cache.tandem_token_ids))
-        target.run.assert_not_called()
-        target.run_tokens.assert_not_called()
-        self.route.return_value = 'model_b'
-        chat.send('retry on the current model')
+        full_text = (chat.conversation_text + '\n<|im_start|>user\nunsupported switch<|im_end|>\n'
+                     '<|im_start|>assistant\n')
+        chat.send('unsupported switch')
+        target.run.assert_called_once_with(full_text, max_new_tokens=100)
+        self.assertEqual(chat.current_model, 'model_a')
+        self.assertEqual(chat.cached_token_ids, [ord(c) for c in full_text] + [99])
         self.assertEqual(len(chat.history), 6)
 
     def test_managers_share_runner_without_sharing_history(self):
@@ -164,14 +156,19 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(chat.current_model, 'model_a')
         self.assertEqual(len(chat.history), 2)
 
-    def test_plain_mode_and_invalid_messages(self):
-        self.runner.prompt_mode = 'plain'
+    def test_chatml_text_and_invalid_messages(self):
         for message in ('', '  ', None, 1):
             with self.assertRaises(ValueError):
                 self.conversation.send(message)
         self.route.assert_not_called()
+        model_a = self.runner._models['model_a']
         self.conversation.send('hello')
+        hello = '<|im_start|>user\nhello<|im_end|>\n<|im_start|>assistant\n'
+        self.assertEqual(model_a.run.call_args.args[0], hello)
         self.conversation.send('next')
-        self.assertEqual(self.runner._models['model_a'].run.call_args.args[0], '\nnext')
+        nxt = '\n<|im_start|>user\nnext<|im_end|>\n<|im_start|>assistant\n'
+        self.assertEqual(model_a.run.call_args.args[0], nxt)
+        self.assertEqual(self.conversation.conversation_text,
+                         hello + 'answer<|im_end|>' + nxt + 'answer<|im_end|>')
         with self.assertRaisesRegex(ValueError, 'unknown model'):
             ConversationManager(self.runner, current_model='unknown')

@@ -21,7 +21,7 @@ class ModelCacheTests(unittest.TestCase):
         network = Qwen2ForCausalLM(config).eval()
         tokenizer = Mock()
         tokenizer.decode.side_effect = lambda ids, **kwargs: str(ids)
-        tokenizer.apply_chat_template.return_value = [10, 11, 12]
+        tokenizer.encode.return_value = [10, 11, 12]
         with patch('src.models.model.AutoModelForCausalLM.from_pretrained', return_value=network), \
              patch('src.models.model.AutoTokenizer.from_pretrained', return_value=tokenizer):
             self.model = Model(model_name='tiny-qwen')
@@ -30,8 +30,7 @@ class ModelCacheTests(unittest.TestCase):
     def test_handoff_matches_full_history_and_preserves_branches(self):
         model = self.model
         model.run('Hello', max_new_tokens=3)
-        model.tokenizer.apply_chat_template.assert_called_once_with(
-            [{'role': 'user', 'content': 'Hello'}], tokenize=True, add_generation_prompt=True, return_dict=False)
+        model.tokenizer.encode.assert_called_once_with('Hello', add_special_tokens=False)
         history = [10, 11, 12] + model.generated_tokens
         cache = model.get_kv_cache()
         before = copy.deepcopy(cache)
@@ -104,21 +103,17 @@ class ModelCacheTests(unittest.TestCase):
         self.assertEqual(model.get_kv_cache().get_seq_length(), 7)
         self.assertEqual(cache.get_seq_length(), 4)
         model.run('independent', max_new_tokens=1)
-        self.assertEqual(model.get_kv_cache().get_seq_length(), 4)
+        self.assertEqual(model.get_kv_cache().get_seq_length(), 3)
 
 
-    def test_plain_text_uses_verbatim_tokens(self):
+    def test_run_encodes_text_verbatim(self):
         model = self.model
-        model.tokenizer.encode.return_value = [10, 11, 12]
-        model.run('Raw training prompt', prompt_mode='plain', max_new_tokens=2)
-        plain_tokens = model.generated_tokens[:]
+        model.run('Raw training prompt', max_new_tokens=2)
+        text_tokens = model.generated_tokens[:]
         model.tokenizer.encode.assert_called_once_with(
             'Raw training prompt', add_special_tokens=False)
-        model.tokenizer.apply_chat_template.assert_not_called()
         model.run_tokens([10, 11, 12], max_new_tokens=2)
-        self.assertEqual(plain_tokens, model.generated_tokens)
-        with self.assertRaisesRegex(ValueError, 'prompt_mode'):
-            model.run('hi', prompt_mode='invalid')
+        self.assertEqual(text_tokens, model.generated_tokens)
 
 
     def test_conversation_manager_matches_full_token_replay(self):
@@ -174,7 +169,7 @@ class ModelCacheTests(unittest.TestCase):
 
                 models = {source: Mock(model_name=model_names[source]), target: model}
                 runner = InferenceRunner(models['model_a'], models['model_b'], Mock(),
-                                         native_adapter, prompt_mode='plain',
+                                         native_adapter,
                                          task_models={'custom': target})
                 with patch('src.translation_layer.inference_runner.router.route', return_value=target):
                     _, switched_cache = runner.receive_prompt(

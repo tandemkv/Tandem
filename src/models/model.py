@@ -36,30 +36,20 @@ class Model:
                         or not torch.isfinite(tensor).all()):
                     raise ValueError("incompatible cache: tensor shape, dtype, device or values")
 
-    def run(self, prompt, *, kv_cache=None, is_suffix=False, max_new_tokens=100,
-            prompt_mode="chat"):
+    def run(self, prompt, *, kv_cache=None, is_suffix=False, max_new_tokens=100):
         """Return answer text and expose the completed cache via get_kv_cache().
 
-        Plain-text mode encodes verbatim with add_special_tokens=False.
-        Ordinary chat prompts use the checkpoint's chat template. With a cache, pass
-        only the uncached suffix and set is_suffix=True (include any required
-        chat framing yourself).
-        This avoids inserting a second system prompt into an existing chat.
+        The prompt is encoded verbatim with add_special_tokens=False, so include
+        any chat framing in the text. With a cache, pass only the uncached
+        suffix and set is_suffix=True.
         Explicit caches work on every call; a constructor cache is used once.
         """
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("prompt must be nonempty text")
-        if prompt_mode not in ("chat", "plain"):
-            raise ValueError("prompt_mode must be chat or plain")
         cache = kv_cache if kv_cache is not None else self._initial_cache
         if cache is not None and not is_suffix:
             raise ValueError("cached prompts must be an uncached suffix (is_suffix=True)")
-        if is_suffix or prompt_mode == "plain":
-            tokens = self.tokenizer.encode(prompt, add_special_tokens=False)
-        else:
-            tokens = self.tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt}], tokenize=True, add_generation_prompt=True, return_dict=False
-            )
+        tokens = self.tokenizer.encode(prompt, add_special_tokens=False)
         answer = self.run_tokens(tokens, kv_cache=cache, max_new_tokens=max_new_tokens)
         self._initial_cache = None
         return answer
@@ -95,6 +85,10 @@ class Model:
                 break
         self.cache = output.past_key_values
         self.cache.tandem_model_name = self.model_name
+        self.cache.tandem_model_revision = (
+            self.revision if kv_cache is None or getattr(kv_cache, "tandem_model_revision", None) == self.revision
+            else None
+        )
         prefix_ids = [] if kv_cache is None else getattr(kv_cache, "tandem_token_ids", None)
         self.cache.tandem_token_ids = (
             None if prefix_ids is None else list(prefix_ids) + list(tokens) + generated

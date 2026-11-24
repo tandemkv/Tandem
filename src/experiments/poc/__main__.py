@@ -51,9 +51,10 @@ def main():
 
     for prompt in args.prompts:
         print(f"\nPrompt: {prompt}")
-        answer, cache = runner.receive_prompt(prompt, conversation_text=prompt,
-                                              current_model="model_a", max_new_tokens=128)
-        print(f"Model: {cache.tandem_model_name}\nAnswer: {answer}")
+        # A fresh conversation per prompt frames it as a ChatML turn.
+        conversation = ConversationManager(runner)
+        answer = conversation.send(prompt, max_new_tokens=128)
+        print(f"Model: {runner.model_names[conversation.current_model]}\nAnswer: {answer}")
 
 
 if __name__ == "__main__":

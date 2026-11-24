@@ -7,7 +7,7 @@ from src.translation_layer.inference_runner import InferenceRunner
 class ConversationManager:
     """Send user messages without manually handing off inference state.
 
-    Chat continuations require answer models that support ChatML.
+    Turns are written as ChatML text, so answer models must support ChatML.
     A runner may be shared by independent managers for sequential calls.
     """
 
@@ -25,26 +25,25 @@ class ConversationManager:
     def send(self, message: str, *, max_new_tokens: int = 100) -> str:
         """Return an answer and commit history only after successful inference.
 
-        Model switches require the runner's kv_cache_mapper. For continued use,
-        adapters must tag translated prefixes with exact tandem_token_ids.
+        Model switches use the runner's kv_cache_mapper when it supports the
+        direction and otherwise rerun the conversation natively. For continued
+        use, adapters must tag translated prefixes with exact tandem_token_ids.
         """
         if not isinstance(message, str) or not message.strip():
             raise ValueError("message must be nonempty text")
-        suffix = message
+        # ChatML written as text, so instruct models answer and the text
+        # matches the cached token IDs exactly.
+        turn = f"<|im_start|>user\n{message}<|im_end|>\n<|im_start|>assistant\n"
         if self.kv_cache is not None:
-            if self.runner.prompt_mode == "chat":
-                end = "" if self.kv_cache.tandem_turn_complete else "<|im_end|>"
-                suffix = (
-                    f"{end}\n<|im_start|>user\n{message}<|im_end|>\n"
-                    "<|im_start|>assistant\n"
-                )
-            else:
-                suffix = "\n" + message
+            end = "" if self.kv_cache.tandem_turn_complete else "<|im_end|>"
+            suffix = f"{end}\n{turn}"
+        else:
+            suffix = turn
         text = self.conversation_text + suffix
         answer, cache = self.runner.receive_prompt(
             message, conversation_text=text, current_model=self.current_model,
             kv_cache=self.kv_cache, is_suffix=self.kv_cache is not None,
-            uncached_suffix=suffix if self.kv_cache is not None else None,
+            uncached_suffix=suffix,
             cached_token_ids=list(self.cached_token_ids),
             prefix_boundary=self.prefix_boundary, max_new_tokens=max_new_tokens,
         )
@@ -57,7 +56,9 @@ class ConversationManager:
         self.current_model = model
         self.kv_cache = cache
         self.cached_token_ids = list(ids)
-        self.conversation_text = text + answer
+        # The cache holds the end-of-turn token, so the text must too.
+        closed = "<|im_end|>" if cache.tandem_turn_complete else ""
+        self.conversation_text = text + answer + closed
         self.prefix_boundary = len(self.conversation_text)
         self.history.extend([
             {"role": "user", "content": message},
