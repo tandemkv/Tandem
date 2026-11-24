@@ -47,6 +47,10 @@
 \midrule
 Oct 19, 2026 & William Pol & First draft of all sections; see the
 disclosure appendix\\
+Nov 8, 2026 & William Pol & Cite FR-01 and FR-07 in place of SR-07 and
+SR-08, which the SRS merged into them; use the VnV Plan's test IDs\\
+Nov 20, 2026 & Manav Patel & Add the suffix-processing hazard H16 and
+loader failure F22; link them to FR-02, FR-05 and the V\&V tests.\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -159,7 +163,8 @@ The components below come from the context and work partitioning in the
   \item \label{comp:router} \textbf{Semantic router:} selects the target
   model for each turn.
   \item \label{comp:app} \textbf{Application:} supplies the conversation,
-  the new message and the sharing group of each request.
+  the new message and the reuse domain of each request. Each conversation has
+  its own domain unless the host explicitly enables sharing.
   \item \label{comp:engine} \textbf{Serving engine and GPU:} the vLLM
   engine \cite{Kwon2023vLLM}, its memory manager, the source and target
   model files, the source model's KV cache and the hardware.
@@ -238,6 +243,9 @@ server. & \ref{loss:service}\\
 H15 & Predicting, checking and loading the cache takes longer than native
 prefill, so reuse slows the request instead of speeding it up. &
 \ref{loss:service}, \ref{loss:waste}\\
+H16 & After accepting a cache, the loader skips or repeats prompt tokens,
+uses wrong suffix positions, or decodes with a different model than the
+router chose. & \ref{loss:wrong}, \ref{loss:waste}\\
 \bottomrule
 \end{longtable}
 
@@ -290,25 +298,25 @@ Recommended action & Req. & Hazard\\
 \midrule\endhead
 F1 & Request validation & Accepts a malformed or oversized request &
 Out-of-memory error or wrong output; other requests slowed & Missing size
-or setting checks & Rejection tests with invalid inputs (T-ADM) & Reject
-before allocating resources; check sizes against the configuration & FR-01,
-SR-07 & H6\\
+or setting checks & Rejection tests with invalid inputs (T-IN-1) & Reject
+before allocating resources; check sizes against the configuration & FR-01
+& H6\\
 F2 & Compatibility checker & Accepts a cache predicted for a different
 model, tokenizer, format or position layout & Garbled or subtly wrong
 answer & Missing metadata treated as a pass; equal cache sizes treated as a
-match & Each check forced to fail separately (T-COMP, T-MATCH) & Treat
+match & Each check forced to fail separately (T-CACHE-1) & Treat
 missing information as a failed check; require every check to pass & FR-03,
 FR-04, SR-02 & H1\\
 F3 & Compatibility checker & Accepts a cache from before a model or
 configuration change & Wrong answer & Version not recorded; restart without
 invalidation & Change the model or configuration, then reuse an old cache
-(T-CONFIG) & Record versions with each cache; invalidate on restart or
+(T-CONF-1) & Record versions with each cache; invalidate on restart or
 change & SR-05, FR-13 & H3, H13\\
 F4 & KV cache predictor & A tested, compatible predicted cache lowers
 answer quality & Plausible but wrong answers, worst when predicting a
 larger model from a smaller one & Approximate prediction; conversation
 unlike the fitting data & Held-out prediction error and output tests
-(T-PRED, T-QUAL); run-time check on the last history tokens & Approve
+(ML Model Report, T-QUAL-2); run-time check on the last history tokens & Approve
 each setup only within a quality-loss limit; at run time, recompute the
 last few history tokens on top of the predicted cache and fall back when
 they disagree & SR-09, SR-10, FR-14, FR-16 & H8\\
@@ -320,39 +328,41 @@ H9\\
 F6 & KV cache predictor & Tokens, layers or heads aligned wrongly between
 source and target & Keys and values placed at the wrong positions; garbled
 answer & Tokenizers split text differently; alignment rules not updated
-for a new model pair & Alignment checks in T-PRED; run-time check on the
+for a new model pair & Alignment checks in the ML Model Report; run-time check on the
 last history tokens & Record alignment with each cache; reject a cache whose
 alignment does not match the configured rules & FR-16, SR-02, SR-10 & H1,
 H8\\
 F7 & KV cache predictor & Produces invalid tensors (wrong shape,
 non-finite values) & Request crashes or produces nonsense & Numerical
 overflow; input outside the fitted range & Forced invalid outputs
-(T-FAIL) & Validate shape and values before loading; fall back to native
+(T-CACHE-1) & Validate shape and values before loading; fall back to native
 prefill & FR-07, FR-16 & H1, H6\\
 F8 & KV cache predictor & Prediction and loading take longer than native
 prefill & Slower first token than without \progname{} & Short shared
 history; large predictor; slow loading path & TTFT benchmarks against
-native prefill (T-PERF) & Use prediction only where tests show a gain;
+native prefill (T-PERF-1) & Use prediction only where tests show a gain;
 otherwise use native prefill & NFR-04, NFR-08 & H15\\
 F9 & Compatibility checker & Reuses a cache from another request's sharing
 group & Private history exposed & Sharing group not checked; request names
-its own group & Cross-group isolation tests (T-ISOLATION) & Sharing group
+its own group & Cross-group isolation tests (T-ISOLATION-1) & Sharing group
 assigned by the host; permission check required & SR-01, SR-04 & H2\\
-F10 & KV loader & Reuse is measurably faster than normal processing & An
-observer infers other users' conversations & Caches reused across users &
-Review of sharing settings; timing tests & Reuse only within one sharing
-group; disable cross-user sharing by default; document the remaining risk &
-SR-12 & H10\\
+F10 & KV loader & Time to first token reveals whether another user in the
+same reuse domain has matching cached history & An observer infers information
+about another user's conversation & Host places conversations from different
+users in a shared domain; no timing obfuscation & Review of the default domain
+policy and risk statement &
+Use one domain per conversation by default; require the host to opt into
+sharing; document and accept the remaining within-domain risk & SR-12 & H10\\
 F11 & KV loader & Cache evicted or overwritten while in use & Corrupted
 output for an active request & Reference-counting fault; eviction policy &
-Repeated lifecycle tests (T-LIFE) & Pin caches while any request uses them
+Repeated lifecycle tests (T-LIFE-2) & Pin caches while any request uses them
 & SR-03, FR-09 & H4\\
 F12 & KV loader & Loading fails after output has started & Partial answer
-& GPU error; memory shortage & Forced failure tests (T-FAIL) & End with a
-failure status; never append a restarted answer & FR-07, SR-08 & H7\\
+& GPU error; memory shortage & Forced failure tests (T-FB-2) & End with a
+failure status; never append a restarted answer & FR-07 & H7\\
 F13 & Native prefill fallback & Fallback is not triggered or fails & A
 valid request fails & Logic fault; fallback disabled & Missing-cache and
-unsupported-pair tests (T-NATIVE) & Fall back on any failed check; keep the
+unsupported-pair tests (T-FB-1) & Fall back on any failed check; keep the
 normal path always available & FR-06, NFR-06 & H1, H6\\
 F14 & Native prefill fallback & Many requests fall back at the same time &
 Delay spike and timeouts for all requests & A configuration change or
@@ -366,29 +376,38 @@ router did not select & Memory and prediction metrics & Cap the memory for
 predicted caches and expire unused ones & SR-14 & H12, H6\\
 F16 & Request lifecycle & Cancelled or timed-out request keeps its memory
 & Memory leak leading to out-of-memory errors & Missing release path &
-Repeated cancellation tests (T-LIFE, T-CANCEL) & Release resources on every
+Repeated cancellation tests (T-LIFE-1a to T-LIFE-1c) & Release resources on every
 final status & FR-09, FR-15 & H6\\
 F17 & Output streaming & Tokens attached to the wrong request & A user
 receives another user's answer & Request IDs mixed under concurrency &
-Overlapping-request tests (T-STATE) & Keep one ordered output stream and one
+Overlapping-request tests (T-LIFE-1a to T-LIFE-1d) & Keep one ordered output stream and one
 final status per request & FR-08 & H2\\
 F18 & Logging and metrics & Raw prompts, answers or cache data written to
 logs & Private data exposed & Debug logging left on & Scan of logs after
-tests (T-PRIVACY) & Log only IDs and status or reason codes & SR-06 & H5\\
+tests (T-ISOLATION-3) & Log only IDs and status or reason codes & SR-06 & H5\\
 F19 & Benchmark tools & Baseline differs from the \progname{} run, or
 failures and preparation cost are left out & Overstated benefit & Different
-settings; selective reporting & Configuration comparison (T-EVAL, T-REPORT)
+settings; selective reporting & Configuration comparison (T-REPORT-1)
 & Run matched workloads; report failures, runs with no gain, and cache
 preparation cost & FR-11, FR-12 & H11\\
 F20 & Configuration registry & An untested setup is enabled & Wrong or
 low-quality answers & Operator error & Attempt to enable without evidence
-(T-QUAL) & Keep reuse off for setups without passing test records & FR-13,
+(T-CONF-1) & Keep reuse off for setups without passing test records & FR-13,
 FR-14 & H1, H8\\
 F21 & Benchmark tools & Predictor evaluated on conversations it was
 fitted on & Reported accuracy higher than in real use & Data split done
 after fitting, or overlapping conversations & Check of the recorded data
-split (T-QUAL, T-REPORT) & Split conversations into fitting and held-out
+split (ML Model Report) & Split conversations into fitting and held-out
 groups before fitting; report the split & FR-14, FR-12 & H11, H8\\
+F22 & KV loader & Wrong suffix boundary, positions or decoding model &
+Missing or repeated prompt content, wrong answers or wasted prefill work &
+Source-token length used for a target prefix; wrong join between prefix
+and suffix; stale model handle & Compare actual token IDs, positions,
+counts and model revision with native processing (T-IN-2, T-CACHE-2,
+T-CACHE-3) & After prefix validation, derive the suffix from the target
+tokenization of the full prompt. Check that the accepted target-prefix
+length plus suffix length equals full prompt length. Use the router-selected
+model and revision for suffix prefill and decoding & FR-02, FR-05 & H16\\
 \bottomrule
 \end{longtable}
 \end{landscape}
@@ -396,7 +415,7 @@ groups before fitting; report the split & FR-14, FR-12 & H11, H8\\
 \section{Safety and Security Requirements}
 \label{sec:requirements}
 
-The existing \srs{} requirements SR-01 to SR-08 mitigate H1--H7 and are
+The existing \srs{} requirements SR-01 to SR-06, FR-01 and FR-07 mitigate H1--H7 and are
 referenced in Table~\ref{tab:fmea}. The analysis found the following new
 requirements, which should be added to the \srs{} security and robustness
 sections. Their fit criteria use the constants in
@@ -408,7 +427,7 @@ Table~\ref{tab:constants}.
   set, which shares no conversations with the data used to fit the
   predictor, the selected model's task scores with the predicted cache are
   no more than \texttt{QUALITY\_LOSS\_LIMIT} below its scores with native
-  prefill. \emph{Fit criterion:} T-QUAL compares both runs on the same test
+  prefill. \emph{Fit criterion:} T-QUAL-2 compares both runs on the same test
   set; a setup above the limit stays disabled.
   \item[SR-10 --- Check predicted caches at run time (H8)] For each reuse,
   \progname{} shall recompute the last \texttt{CANARY\_TOKENS} tokens of
@@ -420,7 +439,7 @@ Table~\ref{tab:constants}.
   It detects badly wrong predictions but does not prove a cache correct;
   SR-09 provides the comparison with native prefill. \emph{Fit criterion:}
   a test injects a degraded cache and checks that the request falls back
-  and records the reason; T-PERF shows that the check keeps time to first
+  and records the reason; T-PERF-1 shows that the check keeps time to first
   token below native prefill for supported setups.
   \item[SR-11 --- Check cache integrity (H9)] Each predicted cache shall
   carry a checksum and a record of its source model and predictor version;
@@ -428,11 +447,15 @@ Table~\ref{tab:constants}.
   match. \emph{Fit
   criterion:} a test alters one byte of a cache and checks that it is
   rejected.
-  \item[SR-12 --- Limit timing leaks (H10)] \progname{} shall reuse a cache
-  only within the sharing group it was predicted for, with reuse across users
-  disabled by default; the documentation shall state the remaining timing
-  risk. \emph{Fit criterion:} T-ISOLATION shows no reuse across groups; a
-  documentation review finds the risk statement.
+  \item[SR-12 --- Limit exposure to timing leaks (H10)] Each conversation
+  shall use its own reuse domain unless the host explicitly assigns a shared
+  one. The documentation shall state that a user in a shared domain may infer
+  whether another user's matching history is cached by observing time to first
+  token. This within-domain timing leak is an accepted risk for the capstone;
+  \progname{} makes no timing-obfuscation guarantee. \emph{Fit criterion:}
+  T-ISOLATION-1 shows that the default domains do not reuse caches across
+  conversations; a documentation review finds the warning and accepted-risk
+  statement.
   \item[SR-13 --- Limit fallback load (H14)] \progname{} shall admit
   fallback prefills only within the engine's configured prefill budget,
   queue at most \texttt{QUEUE\_LIMIT} further requests, and reject any
@@ -484,6 +507,9 @@ expires. \todo{choose a value}\\
   \item Add SR-09 to SR-14, their constants, and H8--H15 to the traceability
   table, which resolves open issue OI6. FR-16 should also trace to H8, H13
   and H15, not only H1 and H3.
+  \item Trace the existing FR-02 and FR-05 requirements to H16. F22 covers
+  how the loader joins an accepted prefix to the remaining prompt and
+  keeps the router-selected model.
   \item \textbf{NFR-05 conflicts with H8.} NFR-05 requires every reuse
   setup to match the native scores within \texttt{SCORE\_ATOL} and to
   produce identical greedy tokens. The \srs{} itself states that cache
@@ -503,25 +529,29 @@ the ones needed for a correct, safe single-server demonstration.
 
 \begin{table}[h]
 \centering
-\caption{Roadmap for the safety and security requirements}
+\caption{Roadmap for hazard mitigations}
 \label{tab:roadmap}
 \begin{tabularx}{\textwidth}{@{}p{0.27\textwidth}p{0.16\textwidth}X@{}}
 \toprule Requirements & When & Reason\\\midrule
-SR-01 to SR-08 & Capstone & Needed for any correct reuse; already in the
+SR-01 to SR-06 & Capstone & Needed for any correct reuse; already in the
 \srs{}.\\
+FR-02, FR-05 & Capstone & Keep suffix tokens, positions and the selected
+model correct (H16).\\
 SR-09, SR-10 & Capstone & Cross-model prediction is approximate (H8), so
 quality checks are part of the core product.\\
 SR-11 (checksum and source) & Capstone & Cheap to build and detects
 corruption.\\
-SR-12 (sharing-group limit) & Capstone & Configuration and documentation
-only.\\
+SR-12 (default reuse-domain isolation) & Capstone & Use a separate domain for
+each conversation unless the host explicitly enables sharing, and document the
+accepted within-domain timing risk.\\
 SR-13, SR-14 & Capstone, after the core path works & Needed for load tests,
 but depend on the reuse path.\\
 Signed caches and caches uploaded by users & Future & A1 excludes untrusted
 sources in the first release; accepting them would need authentication of
 the cache source.\\
 Timing side-channel defences, such as padding response times & Future &
-Costs part of the speedup; SR-12 reduces the risk for now.\\
+SR-12 limits who is exposed by default but does not hide timing inside a shared
+domain. Padding would cost part of the speedup.\\
 Hazards of operation across several servers & Future & Outside the
 \srs{} scope.\\
 \bottomrule
