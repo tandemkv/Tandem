@@ -1,14 +1,19 @@
-"""Run KV translation jobs on a Modal H100 and archive each output folder to the Tandem dataset.
+"""Run KV translation jobs on Modal H100s and archive each result folder to the Tandem dataset.
 
 Needs a Modal secret named `huggingface` with HF_TOKEN. The code must be committed: results record the commit.
 
-  modal run --detach modal_app.py::train_keys --steps 4000   -> experiments/keyfit-<time>/
-  modal run --detach modal_app.py::experiment --name key_fit --count 500
-  modal run --detach modal_app.py::judge --run key_fit-<time>   (the folder the experiment call printed)
+  modal run --detach modal_app.py::train_keys --steps 4000             -> experiments/keyfit-<time>/
+  modal run --detach modal_app.py::experiment --name bridge --count 500 --shards 5 --judge
+                                                                        -> experiments/bridge-<time>/
+
+An experiment splits its cases into consecutive shards, one H100 each. Each shard runs, then judges its own
+answers, and `run.py merge` joins the shards into one run before it is archived.
 """
 import hashlib
+import math
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -31,38 +36,65 @@ image = (
 app = modal.App('tandem-kv-translation', image=image)
 runs = modal.Volume.from_name('tandem-runs', create_if_missing=True)
 cache = modal.Volume.from_name('tandem-hf-cache', create_if_missing=True)
+OPTIONS = dict(secrets=[modal.Secret.from_name('huggingface')],
+               volumes={str(RUNS): runs, '/root/.cache/huggingface': cache})
 
 
-@app.function(gpu='H100', timeout=8 * 3600, secrets=[modal.Secret.from_name('huggingface')],
-              volumes={str(RUNS): runs, '/root/.cache/huggingface': cache})
-def job(args, commit, output, archive=True):
-    """Run `python args...` in the code folder, then archive the output folder as experiments/<name>.
+def python(args, commit):
+    subprocess.run([sys.executable, *map(str, args)], cwd='/code', check=True,
+                   env=os.environ | {'TANDEM_COMMIT': commit})
 
-    run.py writes each run to <output>/<experiment>-<time>; that inner folder is archived, and `{run}` in
-    args names it.
-    """
+
+def archive(folder, commit):
     from huggingface_hub import HfApi
-    os.environ['TANDEM_COMMIT'] = commit
-    inner = lambda: [p for p in (RUNS / output).iterdir() if p.is_dir()]
-    if any('{run}' in a for a in args):
-        [run] = inner()
-        args = [a.replace('{run}', str(run)) for a in args]
-    try:
-        subprocess.run(['python', *args], cwd='/code', check=True)
-    finally:
-        runs.commit()
-        cache.commit()
-    folder = RUNS / output
-    if args[0] == 'run.py':
-        [folder] = inner()
-    if not archive:
-        return folder.name, None, {}
     digests = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.glob('*.pt')}
     info = HfApi().upload_folder(repo_id=DATASET, repo_type='dataset', folder_path=folder,
                                  path_in_repo=f'experiments/{folder.name}',
                                  commit_message=f'Archive {folder.name} from {commit[:7]}')
-    print(f'ARCHIVED experiments/{folder.name} at {info.oid}', digests)
+    print(f'ARCHIVED experiments/{folder.name} at {info.oid}', digests, flush=True)
     return folder.name, info.oid, digests
+
+
+@app.function(gpu='H100', timeout=8 * 3600, **OPTIONS)
+def train(args, commit, folder, upload):
+    try:
+        python(['train_keys.py', *args, '--out', RUNS / folder], commit)
+    finally:
+        runs.commit()
+        cache.commit()
+    return archive(RUNS / folder, commit) if upload else (folder, None, {})
+
+
+@app.function(timeout=3600, **OPTIONS)
+def prefetch():
+    """Put the pinned judge weights in the shared cache once, before shards read them."""
+    from huggingface_hub import snapshot_download
+    sys.path.insert(0, '/code')
+    from judge import JUDGE
+    snapshot_download(JUDGE[0], revision=JUDGE[1], allow_patterns=['*.json', '*.safetensors', '*.txt'])
+    cache.commit()
+
+
+@app.function(gpu='H100', timeout=8 * 3600, **OPTIONS)
+def shard(name, start, count, commit, parent, judge):
+    """Run one consecutive slice of an experiment, and judge it, in <parent>/shard-<start>/."""
+    out = RUNS / parent / f'shard-{start:05d}'
+    try:
+        python(['run.py', 'run', name, '--start', start, '--count', count, '--out', out], commit)
+        [run] = [p for p in out.iterdir() if p.is_dir()]
+        if judge:
+            python(['run.py', 'judge', run], commit)
+    finally:
+        runs.commit()  # The shard does not commit the cache: shards would race on the same files.
+    return str(run)
+
+
+@app.function(timeout=3600, **OPTIONS)
+def merge(shards, commit, folder, upload):
+    runs.reload()
+    python(['run.py', 'merge', RUNS / folder, *shards], commit)
+    runs.commit()
+    return archive(RUNS / folder, commit) if upload else (folder, None, {})
 
 
 def clean_commit():
@@ -73,23 +105,24 @@ def clean_commit():
                           check=True).stdout.strip()
 
 
-@app.local_entrypoint()
-def train_keys(steps: int = 4000, every: int = 500, validation: int = 100, archive: bool = True):
-    """A smoke test: --steps 4 --every 2 --validation 2 --no-archive."""
-    name = f'keyfit-{time.strftime("%Y%m%d-%H%M%S")}'
-    args = ['train_keys.py', '--steps', str(steps), '--every', str(every), '--validation', str(validation),
-            '--out', str(RUNS / name)]
-    print(job.remote(args, clean_commit(), name, archive))
+def stamp(name):
+    return f'{name}-{time.strftime("%Y%m%d-%H%M%S")}'
 
 
 @app.local_entrypoint()
-def experiment(name: str, count: int = 120, archive: bool = True):
-    parent = f'{name}-{time.strftime("%Y%m%d-%H%M%S")}'
-    print(job.remote(['run.py', 'run', name, '--count', str(count), '--out', str(RUNS / parent)],
-                     clean_commit(), parent, archive))
+def train_keys(steps: int = 4000, every: int = 500, validation: int = 100, upload: bool = True):
+    """A smoke test: --steps 4 --every 2 --validation 2 --no-upload."""
+    args = ['--steps', steps, '--every', every, '--validation', validation]
+    print(train.remote([str(a) for a in args], clean_commit(), stamp('keyfit'), upload))
 
 
 @app.local_entrypoint()
-def judge(run: str):
-    """`run` is the output folder an experiment call used, such as key_fit-<time>."""
-    print(job.remote(['run.py', 'judge', '{run}'], clean_commit(), run))
+def experiment(name: str, count: int = 120, shards: int = 1, judge: bool = False, upload: bool = True):
+    """A smoke test: --count 4 --shards 2 --judge --no-upload."""
+    commit, folder = clean_commit(), stamp(name)
+    if judge:
+        prefetch.remote()
+    size = math.ceil(count / shards)
+    calls = [(name, start, min(size, count - start), commit, f'{folder}-shards', judge)
+             for start in range(0, count, size)]
+    print(merge.remote(list(shard.starmap(calls)), commit, folder, upload))

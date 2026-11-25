@@ -10,6 +10,7 @@
   run.py run context_only --out DIR        -> DIR/context_only-<time>/{config.json,rows.jsonl,summary.json}
   run.py judge DIR/context_only-<time>      -> adds judge verdicts and semantic agreement
   run.py summarize DIR/context_only-<time>  -> recomputes summary.json, including subsets
+  run.py merge OUT SHARD...                 -> one run from consecutive shards (run --start)
   run.py bem answers.json --method distilled
 """
 import argparse
@@ -43,14 +44,14 @@ def write_json(path, data):
 
 
 @torch.inference_mode()
-def run(experiment, count, device, dtype, out):
+def run(experiment, start, count, device, dtype, out):
     spec = importlib.import_module(f'experiments.{experiment}')
-    cases = spec.cases()[:count]
+    cases = spec.cases()[start:start + count]
     directory = out / f'{experiment}-{time.strftime("%Y%m%d-%H%M%S")}'
     directory.mkdir(parents=True)
     h = harness.Harness(device, getattr(torch, dtype))
     write_json(directory / 'config.json', {
-        'experiment': experiment, 'cases': len(cases), 'conditions': spec.CONDITIONS,
+        'experiment': experiment, 'start': start, 'cases': len(cases), 'conditions': spec.CONDITIONS,
         'device': torch.cuda.get_device_name() if device == 'cuda' else 'cpu', 'dtype': dtype,
         'commit': git_commit(), 'torch': torch.__version__, 'transformers': transformers.__version__,
         'dataset': [harness.REPO, harness.REVISION], 'models': harness.MODELS,
@@ -95,6 +96,35 @@ def write_summary(directory, rows, **extra):
     write_json(previous, summary | extra)
 
 
+def merge(out, directories):
+    """Join consecutive shards of one run, pooling judge validation by pair counts."""
+    configs = [json.loads((d / 'config.json').read_text()) for d in directories]
+    first = configs[0]
+    for previous, config in zip(configs, configs[1:]):
+        if config['start'] != previous['start'] + previous['cases']:
+            raise ValueError('Shards must be consecutive')
+    for key in ('experiment', 'commit', 'conditions', 'dtype', 'judge_commit'):
+        if len({json.dumps(c.get(key)) for c in configs}) > 1:
+            raise ValueError(f'Shards differ in {key}')
+    rows = [row for d in directories for row in read_rows(d)]
+    out.mkdir(parents=True)
+    write_json(out / 'config.json', first | {'cases': len(rows), 'shards': [
+        {'start': c['start'], 'cases': c['cases'], 'device': c['device']} for c in configs]})
+    (out / 'rows.jsonl').write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in rows))
+    validations = [json.loads((d / 'summary.json').read_text()).get('judge_validation') for d in directories]
+    extra = {}
+    if all(validations):
+        pooled = {}
+        for kind in ('same', 'different'):
+            pairs = sum(v[f'{kind}_pairs'] for v in validations)
+            pooled[f'{kind}_accuracy'] = sum(v[f'{kind}_accuracy'] * v[f'{kind}_pairs'] for v in validations) / pairs
+            pooled[f'{kind}_pairs'] = pairs
+        extra['judge_validation'] = pooled | {'misses': [m for v in validations for m in v['misses']]}
+    elif any(validations):
+        raise ValueError('Only some shards were judged')
+    write_summary(out, rows, **extra)
+
+
 def judge(directory, device):
     from judge import JUDGE, Judge, annotate, validate
     model, rows = Judge(device), read_rows(directory)
@@ -113,6 +143,7 @@ if __name__ == '__main__':
     commands = parser.add_subparsers(dest='command', required=True)
     command = commands.add_parser('run')
     command.add_argument('experiment')
+    command.add_argument('--start', type=int, default=0, help='First case, to run one shard')
     command.add_argument('--count', type=int, default=120)
     command.add_argument('--device', choices=('cpu', 'cuda'), default='cuda')
     command.add_argument('--dtype', choices=('float32', 'bfloat16'), default='float32')
@@ -122,14 +153,19 @@ if __name__ == '__main__':
     command.add_argument('--device', choices=('cpu', 'cuda'), default='cuda')
     command = commands.add_parser('summarize', help='Recompute summary.json, including subsets, from rows.jsonl')
     command.add_argument('directory', type=Path)
+    command = commands.add_parser('merge', help='Join consecutive shard runs into one run')
+    command.add_argument('out', type=Path)
+    command.add_argument('shards', type=Path, nargs='+')
     command = commands.add_parser('bem')
     command.add_argument('answers', type=Path)
     command.add_argument('--method', choices=('distilled', 'ridge', 'question_only'), default='distilled')
     args = parser.parse_args()
     if args.command == 'run':
-        run(args.experiment, args.count, args.device, args.dtype, args.out)
+        run(args.experiment, args.start, args.count, args.device, args.dtype, args.out)
     elif args.command == 'judge':
         judge(args.directory, args.device)
+    elif args.command == 'merge':
+        merge(args.out, args.shards)
     elif args.command == 'summarize':
         write_summary(args.directory, read_rows(args.directory))
     else:
