@@ -28,6 +28,9 @@ CHECKPOINTS = {  # name: (dataset path, sha256, dataset revision)
     'keyfit': ('experiments/keyfit-20261124-190025/keyfit.pt',  # train_keys.py from distilled, 4000 steps
                'a3f59694adf0389482ff2871c8825833ad833cbd42c30fbda217653392de2d95',
                '14132052d3e7962c1718018e551be31061f85638'),
+    'output': ('experiments/output-20261125-090640/output.pt',  # train_output.py from keyfit, 4000 steps
+               '13e2a0a5c5dda74d2d002ca09a35133131eb7ed52833487f8af194581f2aff07',
+               '9309f231d36c4265856d18d19748944deb6285ca'),
 }
 MAX_NEW_TOKENS = 32
 

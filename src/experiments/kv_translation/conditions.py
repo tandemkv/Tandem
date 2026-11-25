@@ -56,6 +56,7 @@ CONDITIONS = {
     'ridge': translated('ridge'),
     'distilled': translated('distilled'),
     'keyfit': translated('keyfit'),
+    'output': translated('output'),
     'permuted_distilled': permuted('distilled'),
     'native_keys_distilled': native_part('distilled', 0),
     'native_values_distilled': native_part('distilled', 1),
