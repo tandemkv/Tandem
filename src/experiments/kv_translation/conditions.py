@@ -55,6 +55,7 @@ CONDITIONS = {
     'question_only': question_only,
     'ridge': translated('ridge'),
     'distilled': translated('distilled'),
+    'keyfit': translated('keyfit'),
     'permuted_distilled': permuted('distilled'),
     'native_keys_distilled': native_part('distilled', 0),
     'native_values_distilled': native_part('distilled', 1),
