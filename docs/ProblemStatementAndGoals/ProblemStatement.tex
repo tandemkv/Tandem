@@ -36,6 +36,9 @@ Sept 27, 2026 & Zayed Umer & Revise the problem section from review\\
 Oct 11, 2026 & Justin Kwinecki & Pivot idea update \\
 Oct 11, 2026 & Justin Kwinecki & Align scope and goals with semantic routing \\
 Oct 14, 2026 & Justin Kwinecki & Clarify serving-engine integration focus \\
+Nov 20, 2026 & William Pol & State what Tandem delivers; translator training in
+scope; goals aligned with the SRS; memory and branching stretch goals
+removed; reflection and AI disclosure updated \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -70,10 +73,13 @@ model's response and the independence of each request.
 Tandem targets text-generation requests in a multi-turn interaction where
 semantic routing may select different models for successive turns. The
 requests share conversation history, while the newest user message may
-differ. The project investigates serving-engine integration to reduce
-repeated prefill on a model switch. Its planned approach is to transfer a
-cross-model key-value (KV) cache into the serving engine's KV memory and
-use it when compatible with the request. When reuse is unavailable or
+differ. Tandem is an extension to a large language model (LLM) serving
+stack, not a router or scheduler: a trained translator and a cache-handoff
+path in the inference runner, first built on Hugging Face Transformers and
+then integrated into vLLM. It takes the router's choice of model as input.
+On a model switch, it translates the source model's key-value (KV) cache
+into one the target model can use, and uses it when compatible with the
+request. When reuse is unavailable or
 unusable, the engine uses its native prefill path. The evaluation will use
 one server and a defined set of models and serving configurations. It will
 include same-model turns and turns routed to a different model, with and
@@ -90,9 +96,8 @@ differently worded context is outside the initial scope. Reuse across
 different models will be limited to model combinations for which correctness
 can be established.
 
-The project focuses on serving-engine integration and evaluation, rather
-than developing a new method to predict one model's cache from another.
-Evaluation will compare time to first token after a model switch using the
+The project trains a translator between a fixed pair of models; it does
+not train or modify the base models. Evaluation will compare time to first token after a model switch using the
 chosen reuse approach against the engine's native full-prefill path, while
 checking output correctness and recording reuse failures and fallback
 behavior. The
@@ -133,13 +138,13 @@ The outputs are:
 
 \begin{itemize}
   \item \textbf{Application developers, including independent developers:}
-  need faster responses without changing their agents' tasks or results.
+  need faster responses without changing their applications or results.
   \item \textbf{Serving-engine maintainers:} need changes they can
   integrate and maintain, supported by correctness and compatibility tests.
   \item \textbf{Infrastructure operators and deploying organizations:}
   need to serve more requests within their hardware capacity and budget.
   \item \textbf{Application end users:} need timely responses that are
-  unaffected by other agents' private instructions.
+  unaffected by other users' conversations.
   \item \textbf{The capstone team, TA, and instructor:} need a feasible
   scope and reproducible evidence that the project meets its goals.
 \end{itemize}
@@ -158,30 +163,29 @@ hardware.
 
 \section{Goals}
 
-These goals will be refined into acceptance criteria in the Software
-Requirements Specification and test procedures in the Verification and
-Validation Plan. Performance comparisons use the baseline in
-Section~\ref{sec:scope}, repeated runs, and reported variation. Improvements
-must exceed that variation.
+These goals are refined into requirements in the Software Requirements
+Specification and into tests in the Verification and Validation Plan.
+Every goal must hold while the selected model's output stays consistent
+with native prefill, each request stays independent of other users'
+conversations, and requests that cannot reuse a cache fall back to normal
+prefill. Performance comparisons use the baseline in
+Section~\ref{sec:scope}, repeated runs, and reported variation;
+improvements must exceed that variation.
 
 \begin{enumerate}[label=G\arabic*., ref=G\arabic*]
-  \item \textbf{Reduce repeated prefill after model switches.} Reduce the
-  processing of shared conversation history when a request is routed to a
-  different model. Compare the chosen reuse approach with the serving
-  engine's native full-prefill path, and report time to first token,
-  repeated prompt tokens, and reuse or fallback outcomes.
-  \item \textbf{Increase serving capacity without unacceptable delay.}
-  Seek higher completed requests per second on the same hardware and matched
-  workloads, while reporting median and 95th-percentile time to first token
-  alongside throughput.
-  \item \textbf{Preserve model behaviour and request independence.}
-  Compare generated text and output scores with the selected model's native
-  serving baseline under controlled settings, including multi-token
-  generation. Assess whether one request's private instructions affect
-  another request's output scores.
-  \item \textbf{Maintain ordinary serving.} Preserve the serving engine's
-  ability to handle same-model requests and requests without shared context,
-  and measure any effect of the integration on their delay and throughput.
+  \item \textbf{Predict target KV from source KV.} Train and integrate a
+  translator that lets the target model continue a conversation from the
+  source model's KV cache, without prefilling the shared history again.
+  Measure KV error and output agreement against native prefill.
+  \item \textbf{Reduce compute and serving cost.} Lower GPU time per
+  completed request after counting the time to translate, check and load
+  the cache.
+  \item \textbf{Support economical model switching.} Keep the savings of
+  routing suitable requests to a smaller model, by removing the history
+  reprocessing that a model switch would otherwise cost.
+  \item \textbf{Improve latency and throughput.} Lower median and
+  95th-percentile time to first token after a model switch, and complete
+  more requests per second on the same hardware.
 \end{enumerate}
 
 Evaluation will report improvements, regressions, and workloads with no
@@ -191,14 +195,8 @@ measurable change.
 
 After meeting the core goals, the team may pursue:
 \begin{itemize}
-  \item \textbf{Support deeper branching.} Extend correctness and
-  performance evaluation to conversations with several shared branching
-  points, including branches introduced during an ongoing interaction.
   \item \textbf{Support more configurations.} Repeat the evaluation on
   additional models or GPUs to test whether the benefits persist.
-  \item \textbf{Reduce memory demand.} Use less peak GPU memory than the
-  matched baseline for shared-context workloads and measure whether this
-  permits more concurrent requests within the same memory limit.
 \end{itemize}
 
 \section{Custom Documents (CDs)}
@@ -207,9 +205,9 @@ The Development Plan draft proposes these custom documents, subject to
 instructor approval:
 
 \begin{itemize}
-  \item \textbf{Fall: Machine Learning Model Report.} Justify the selected
-  model, evaluation prompts, and correctness checks. Discuss model and data
-  limitations, and explain why training procedures do not apply.
+  \item \textbf{Fall: Machine Learning Model Report.} Describe the translator:
+  its training data, training procedure, and evaluation against native
+  prefill. Discuss model and data limitations.
   \item \textbf{Winter: Performance Report.} Analyze repeated processing,
   response delay, throughput, and resource use. Record configurations,
   workloads, repeated trials, variation, and failure cases. The Verification
@@ -234,10 +232,16 @@ memory use even modestly. Codex edited those notes and connected them to
 the proposed scope. The team remains responsible for reviewing the wording,
 claims, and scope before submission.
 
-Justin Kwinecki used ChatGPT (free web version) to research which groups
+Justin Kwinecki used ChatGPT (free web version, Astra 6.1) to research which groups
 of professionals would benefit from this project and their specific use
 cases, for Section~\ref{sec:stakeholders}, Stakeholders. The team reviewed
 the resulting list before including it.
+
+For the November revision, William Pol used Claude Code (version 2.1.329)
+with the Claude Opus 5.5 model to update the scope, goals, stretch goals,
+custom documents and reflection from the team's decisions and the
+peer-review issues. The reflection answer on scope starts from Manav
+Patel's revision. The team reviewed the changes before submission.
 
 \section*{Appendix --- Reflection}
 
@@ -261,14 +265,17 @@ the resulting list before including it.
   \item \textbf{How did you and your team adjust the scope of your goals
   to ensure they are suitable for a Capstone project?}
 
-  We wanted to improve inference resource use, especially memory, even
-  if the gain was modest. The proposed scope turns that motivation into
-  one workload we can measure: successive requests with shared conversation
-  history that semantic routing sends to different models. Using existing
-  models lets us focus on serving-system integration, correctness, and
-  performance. Memory savings and broader model support remain stretch
-  goals. This gives us a bounded implementation to evaluate within the
-  course, with success judged by reproducible results.
+  We first wanted to make inference use fewer resources, including memory.
+  To keep the project manageable, we narrowed that interest to repeated
+  prefill after model switches. We will judge success by lower time to
+  first token, lower GPU time per request and more completed requests per
+  second, while preserving the selected model's behaviour and keeping
+  requests independent. Same-model requests and requests without shared
+  context must still work normally.
+
+  Support for more model configurations remains a stretch goal. Peak GPU
+  memory is not expected to change much when a cache is translated instead
+  of computed, so memory savings are not a goal.
 \end{enumerate}
 
 \end{document}
