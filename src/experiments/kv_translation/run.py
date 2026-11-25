@@ -15,6 +15,7 @@
 import argparse
 import importlib
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -30,6 +31,8 @@ HERE = Path(__file__).resolve().parent
 
 
 def git_commit():
+    if 'TANDEM_COMMIT' in os.environ:  # Modal copies the code without git; modal_app.py passes the commit.
+        return os.environ['TANDEM_COMMIT']
     head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=HERE, capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(['git', 'status', '--porcelain', '--', '.'], cwd=HERE, capture_output=True, text=True)
     return head + ('-dirty' if dirty.stdout.strip() else '')

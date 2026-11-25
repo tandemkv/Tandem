@@ -20,9 +20,11 @@ MODELS = {
     'smol': ('HuggingFaceTB/SmolLM2-360M-Instruct', 'a10cc1512eabd3dde888204e902eca88bddb4951'),
     'qwen': ('Qwen/Qwen2.5-0.5B-Instruct', '7ae557604adf67be50417f59c2c2f167def9a775'),
 }
-CHECKPOINTS = {
-    'ridge': ('ridge-8000.pt', '84046a87b50ddfb3423ceece930ed7ca2b7055cda09d48b8435c91b74eb54193'),
-    'distilled': ('distilled-8000.pt', 'db99621579ef552721ffdf57b5308314d32e4944f87f2038f640ff65909bb0d6'),
+CHECKPOINTS = {  # name: (dataset path, sha256, dataset revision)
+    'ridge': (f'{RUN}/outputs/ridge-8000.pt', '84046a87b50ddfb3423ceece930ed7ca2b7055cda09d48b8435c91b74eb54193',
+              REVISION),
+    'distilled': (f'{RUN}/outputs/distilled-8000.pt',
+                  'db99621579ef552721ffdf57b5308314d32e4944f87f2038f640ff65909bb0d6', REVISION),
 }
 MAX_NEW_TOKENS = 32
 
@@ -60,8 +62,8 @@ class Harness:
         self.qwen, self.smol = self.models['qwen'], self.models['smol']
         load = lambda path, **kw: torch.load(download(path, **kw), map_location=device, weights_only=True)
         self.normalization = load(NORMALIZATION[0], revision=PARENT_REVISION, sha256=NORMALIZATION[1])['model']
-        self.checkpoints = {name: load(f'{RUN}/outputs/{file}', sha256=digest)
-                            for name, (file, digest) in CHECKPOINTS.items()}
+        self.checkpoints = {name: load(path, revision=revision, sha256=digest)
+                            for name, (path, digest, revision) in CHECKPOINTS.items()}
         eos = self.qwen.generation_config.eos_token_id
         self.eos = {eos} if isinstance(eos, int) else set(eos or [])
 

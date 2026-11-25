@@ -26,6 +26,7 @@ import harness
 from conditions import Prepared
 from data import Case
 from mapper import capture, translate
+from run import git_commit
 
 VALIDATION = 100  # The last hotpot training prompts, held out from the key fit.
 
@@ -156,6 +157,7 @@ def main():
                 best = current
                 torch.save({'weights': torch.stack((weights.detach(), values)).cpu(),
                             'layers': start['layers'].cpu(), 'start': args.start, 'steps': step,
+                            'commit': git_commit(), 'lr': args.lr,
                             'validation': current}, args.out / 'keyfit.pt')
     print(f'best validation attention KL {best:.4f}')
 
