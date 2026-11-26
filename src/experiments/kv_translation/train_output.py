@@ -61,6 +61,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--start', choices=tuple(harness.CHECKPOINTS), default='keyfit')
     parser.add_argument('--steps', type=int, default=4000)
+    parser.add_argument('--offset', type=int, default=0, help='Skip this many training prompts, to continue a run')
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--every', type=int, default=500, help='Validate and save this often')
     parser.add_argument('--validation', type=int, default=VALIDATION)
@@ -88,7 +89,7 @@ def main():
 
     best = validate(0)
     running = []
-    for step, case in enumerate(fit[:args.steps], 1):
+    for step, case in enumerate(fit[args.offset:args.offset + args.steps], 1):
         try:
             example = Example(h, case, h.device)
         except ValueError as error:  # The prompt has no clean shared split for both tokenizers.
@@ -107,7 +108,7 @@ def main():
             if current < best:
                 best = current
                 torch.save({'weights': weights.detach().cpu(), 'layers': layers.cpu(), 'start': args.start,
-                            'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
+                            'offset': args.offset, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
                            args.out / 'output.pt')
     print(f'best validation output KL {best:.4f}')
 
