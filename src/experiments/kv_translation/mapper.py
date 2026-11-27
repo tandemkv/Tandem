@@ -82,6 +82,9 @@ def translate(source, alignment, checkpoint, normalization, source_heads):
             x = torch.cat((x, x.flip(1)), dim=-1)
         x = torch.cat((x, torch.ones_like(x[..., :1])), dim=-1)
         y = torch.einsum('brli,rlio->brlo', x, checkpoint['weights'])
+        if 'up' in checkpoint:  # A nonlinear residual per role and layer, on top of the affine map.
+            hidden = torch.nn.functional.gelu(torch.einsum('brli,rlih->brlh', x, checkpoint['up']))
+            y = y + torch.einsum('brlh,rlho->brlo', hidden, checkpoint['down'])
         output[batch] = y.reshape(-1, *target_mean.shape) * target_std + target_mean
     return output.to(source.dtype)
 

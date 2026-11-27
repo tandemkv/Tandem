@@ -52,10 +52,9 @@ class Example:
         self.tensors = [t.to(device) for t in (p.source, teacher)]
 
 
-def loss(h, example, weights, layers, coupled=False):
+def loss(h, example, mapping):
     source, teacher = (t.to(h.device) for t in example.tensors)
-    features = translate(source, example.alignment, {'layers': layers, 'weights': weights, 'coupled': coupled}, h.normalization,
-                         h.smol.config.num_key_value_heads)
+    features = translate(source, example.alignment, mapping, h.normalization, h.smol.config.num_key_value_heads)
     if example.header is not None:  # The first prefix tokens come from Qwen itself, as in native_header.
         features = torch.cat([example.header.to(features), features[len(example.header):]])
     student = logits(h, example.ids, to_cache(h.qwen, features))[-len(teacher):].float().log_softmax(-1)
@@ -70,6 +69,8 @@ def main():
     parser.add_argument('--header', type=int, default=0, help='Train with this many native leading prefix tokens')
     parser.add_argument('--coupled', action='store_true', help='Let K and V each read both source K and V')
     parser.add_argument('--answer-only', action='store_true', help='Fit only the positions that predict the answer')
+    parser.add_argument('--mlp', type=int, default=0, help='Add a nonlinear residual with this hidden width')
+    parser.add_argument('--mlp-lr', type=float, default=1e-4)
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--every', type=int, default=500, help='Validate and save this often')
     parser.add_argument('--validation', type=int, default=VALIDATION)
@@ -84,15 +85,22 @@ def main():
     weights, layers, coupled = start['weights'].clone(), start['layers'], args.coupled or start.get('coupled', False)
     if coupled and not start.get('coupled'):  # Zero cross weights: the coupled map starts as the start map.
         weights = torch.cat((weights[..., :-1, :], torch.zeros_like(weights[..., :-1, :]), weights[..., -1:, :]), -2)
-    weights = torch.nn.Parameter(weights)
-    optimizer = torch.optim.AdamW([weights], lr=args.lr, weight_decay=0)
+    mapping = {'layers': layers, 'coupled': coupled, 'weights': torch.nn.Parameter(weights)}
+    groups = [{'params': [mapping['weights']], 'lr': args.lr}]
+    if 'up' in start or args.mlp:  # Zero down weights: the residual map starts as the start map.
+        up = start['up'].clone() if 'up' in start else torch.randn(*weights.shape[:-1], args.mlp, generator=torch.Generator().manual_seed(0)) / weights.shape[-2] ** 0.5
+        down = start['down'].clone() if 'down' in start else torch.zeros(*weights.shape[:-2], up.shape[-1], weights.shape[-1])
+        mapping |= {'up': torch.nn.Parameter(up.to(weights)), 'down': torch.nn.Parameter(down.to(weights))}
+        groups.append({'params': [mapping['up'], mapping['down']], 'lr': args.mlp_lr})
+    parameters = [p for group in groups for p in group['params']]
+    optimizer = torch.optim.AdamW(groups, weight_decay=0)
     fit, held = train_cases()
     held = [Example(h, case, 'cpu', args.header, args.answer_only) for case in held[:args.validation]]
     log = (args.out / 'log.jsonl').open('a')
 
     def validate(step):
         with torch.no_grad():
-            value = sum(loss(h, e, weights, layers, coupled).item() for e in held) / len(held)
+            value = sum(loss(h, e, mapping).item() for e in held) / len(held)
         log.write(json.dumps({'step': step, 'validation': value, 'time': time.time()}) + '\n')
         log.flush()
         print(f'step {step} validation output KL {value:.4f}', flush=True)
@@ -106,10 +114,10 @@ def main():
         except ValueError as error:  # The prompt has no clean shared split for both tokenizers.
             print(f'skip {case.id}: {error}', flush=True)
             continue
-        value = loss(h, example, weights, layers, coupled)
+        value = loss(h, example, mapping)
         optimizer.zero_grad(set_to_none=True)
         value.backward()
-        torch.nn.utils.clip_grad_norm_([weights], 1.0, error_if_nonfinite=True)
+        torch.nn.utils.clip_grad_norm_(parameters, 1.0, error_if_nonfinite=True)
         optimizer.step()
         running.append(value.item())
         if (step % args.every == 0 or step == args.steps) and running:
@@ -118,8 +126,9 @@ def main():
             current = validate(step)
             if current < best:
                 best = current
-                torch.save({'weights': weights.detach().cpu(), 'layers': layers.cpu(), 'start': args.start,
-                            'offset': args.offset, 'header': args.header, 'coupled': coupled, 'answer_only': args.answer_only, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
+                torch.save({k: v.detach().cpu() for k, v in mapping.items() if torch.is_tensor(v)} | {
+                            'coupled': coupled, 'mlp_lr': args.mlp_lr, 'start': args.start,
+                            'offset': args.offset, 'header': args.header, 'answer_only': args.answer_only, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
                            args.out / 'output.pt')
     print(f'best validation output KL {best:.4f}')
 
