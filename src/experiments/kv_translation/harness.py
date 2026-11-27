@@ -40,6 +40,9 @@ CHECKPOINTS = {  # name: (dataset path, sha256, dataset revision)
     'output3h5': ('experiments/output3h5-20261127-051005/output.pt',  # the same, with 5 native header tokens
                   '7f9bfcb779f26ce5428e92446387903a1de36e615b7bda7180c6ae6389e1ca47',
                   '62b7d01e4be495f4e6fc86fdbfdb5f323359673f'),
+    'output4': ('experiments/output4-20261127-065421/output.pt',  # output3, rest of the second pass
+                'f9a6cde1a2e6d25cd0b897f8a77701161468d0336b88ae276c336d9ca8c7dbc0',
+                '58ccd341fadce9cd0d92fcf50a02e742df14135f'),
 }
 MAX_NEW_TOKENS = 32
 

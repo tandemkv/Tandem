@@ -70,6 +70,7 @@ CONDITIONS = {
     'header1_output2': native_header('output2', 1),
     'header5_output2': native_header('output2', 5),
     'output3': translated('output3'),
+    'output4': translated('output4'),
     'header5_output3': native_header('output3', 5),
     'header5_output3h5': native_header('output3h5', 5),
     'permuted_distilled': permuted('distilled'),
