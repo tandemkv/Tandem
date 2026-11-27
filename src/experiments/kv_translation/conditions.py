@@ -60,6 +60,17 @@ def native_header(name, count):
     return build
 
 
+def native_layers(name, first, last):
+    """Diagnostic: the translation with native Qwen K/V in layers first..last-1, to locate the loss by depth."""
+    def build(harness, prepared):
+        heads = harness.qwen.config.num_key_value_heads
+        mixed = translated(name)(harness, prepared).clone()
+        native = capture(harness.qwen, prepared.target_ids)
+        mixed[:, :, first * heads:last * heads] = native[:, :, first * heads:last * heads].to(mixed.dtype)
+        return mixed
+    return build
+
+
 def native(dtype=None):
     """Control: Qwen's own prefix K/V, optionally rounded through dtype, to bound what any map can reach."""
     def build(harness, prepared):
@@ -83,6 +94,10 @@ CONDITIONS = {
     'output4': translated('output4'),
     'header5_output3': native_header('output3', 5),
     'header5_output3h5': native_header('output3h5', 5),
+    'native_keys_output3': native_part('output3', 0),
+    'native_values_output3': native_part('output3', 1),
+    'native_early_output3': native_layers('output3', 0, 12),
+    'native_late_output3': native_layers('output3', 12, 24),
     'permuted_distilled': permuted('distilled'),
     'native_keys_distilled': native_part('distilled', 0),
     'native_values_distilled': native_part('distilled', 1),
