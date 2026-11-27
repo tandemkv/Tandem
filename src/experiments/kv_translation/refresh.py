@@ -142,6 +142,7 @@ SELECTIONS = {'fractured': fractured, 'entity': entity, 'multi': multi,
               'random_fractured': random_like(fractured), 'random_entity': random_like(entity),
               'random_multi': random_like(multi)}
 FRACTIONS = (15, 33, 50, 75)
+SELECTIONS['scattered0'] = scattered(0.0)
 SELECTIONS |= {f'{name}{p}': make(p / 100) for p in FRACTIONS
                for name, make in (('scattered', scattered), ('lead', lead), ('hub', hub))}
 

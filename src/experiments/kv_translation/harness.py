@@ -91,8 +91,7 @@ class Harness:
         positions = torch.arange(past, past + len(ids), device=self.device)
         return self.qwen(input_ids=torch.tensor([ids], device=self.device), past_key_values=cache,
                          use_cache=True, logits_to_keep=1, cache_position=positions,
-                         position_ids=positions[None],
-                         attention_mask=torch.ones((1, past + len(ids)), dtype=torch.long, device=self.device))
+                         position_ids=positions[None], attention_mask=self.mask(cache, past + len(ids)))
 
     def generate(self, suffix, cache=None):
         """Greedy answer after the cache, with the first-step log-probabilities for diagnostics."""
@@ -116,14 +115,31 @@ class Harness:
         logits = self.qwen(input_ids=torch.tensor([ids], device=self.device), past_key_values=cache,
                            use_cache=True, logits_to_keep=len(tokens) + 1, cache_position=positions,
                            position_ids=positions[None],
-                           attention_mask=torch.ones((1, past + len(ids)), dtype=torch.long,
-                                                     device=self.device)).logits[0, :-1].float()
+                           attention_mask=self.mask(cache, past + len(ids))).logits[0, :-1].float()
         target = torch.tensor(tokens, device=self.device)
         return torch.nn.functional.cross_entropy(logits, target).item()
 
     def cache(self, features):
-        """A fresh Qwen cache from unrotated K/V features, or None. Generation mutates caches."""
-        return None if features is None else to_cache(self.qwen, features)
+        """A fresh Qwen cache from unrotated K/V features, or None. Generation mutates caches.
+
+        Features may come as (features, keep): prefix positions where keep is 0 get no attention.
+        """
+        if features is None:
+            return None
+        keep = None
+        if isinstance(features, tuple):
+            features, keep = features
+        cache = to_cache(self.qwen, features)
+        cache.keep = keep
+        return cache
+
+    def mask(self, cache, length):
+        """The attention mask over cache and new tokens: ones, except prefix positions the cache drops."""
+        mask = torch.ones((1, length), dtype=torch.long, device=self.device)
+        keep = getattr(cache, 'keep', None)
+        if keep is not None:
+            mask[0, :len(keep)] = keep.to(self.device)
+        return mask
 
     def check_replay(self, target_ids, suffix):
         """Native full prefill and native split-cache replay must pick the same greedy answer.

@@ -2,7 +2,7 @@
 import torch
 
 from mapper import capture, overlap_alignment, split_prompt, translate
-from refresh import FRACTIONS, SELECTIONS, refresh
+from refresh import FRACTIONS, SELECTIONS, body_tokens, refresh
 
 
 class Prepared:
@@ -95,6 +95,20 @@ def refreshed(name, selection):
     return build
 
 
+def masked_oracle(name, selection):
+    """Control: native K/V on the selected body tokens, the other body tokens masked out of attention.
+
+    The same cache as column_oracle, so the only difference is translated versus absent for the rest.
+    """
+    def build(harness, prepared):
+        features = column_oracle(name, selection)(harness, prepared)
+        keep = torch.ones(len(features), dtype=torch.long)
+        keep[body_tokens(harness, prepared)] = 0
+        keep[SELECTIONS[selection](harness, prepared)] = 1
+        return features, keep
+    return build
+
+
 def native(dtype=None):
     """Control: Qwen's own prefix K/V, optionally rounded through dtype, to bound what any map can reach."""
     def build(harness, prepared):
@@ -137,6 +151,8 @@ CONDITIONS = {
     **{f'{kind}_{name}{p}_output3': build('output3', f'{name}{p}') for p in FRACTIONS
        for kind, build in (('oracle', column_oracle), ('refresh', refreshed))
        for name in ('scattered', 'lead', 'hub')},
+    **{f'masked_scattered{p}_output3': masked_oracle('output3', f'scattered{p}') for p in FRACTIONS},
+    'masked_scattered0_output3': masked_oracle('output3', 'scattered0'),
     'permuted_distilled': permuted('distilled'),
     'native_keys_distilled': native_part('distilled', 0),
     'native_values_distilled': native_part('distilled', 1),
