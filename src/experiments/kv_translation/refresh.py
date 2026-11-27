@@ -2,7 +2,7 @@
 
 Selections pick whole token columns (K and V, every layer), so K/V slot pairing and per-token layer
 trajectories stay intact. `fractured` marks tokens whose span is not a shared tokenizer boundary,
-`entity` marks mid-sentence capitalized words and numbers, and `random_like` draws a matched random set as a control.
+`entity` marks mid-sentence capitalized words and numbers, `multi` marks words Qwen splits into pieces, and `random_like` draws a matched random set as a control.
 """
 import random
 import re
@@ -40,16 +40,43 @@ def entity(harness, prepared):
     return [i for i, (a, b) in enumerate(target) if b > a and any(a < e and s < b for s, e in spans)]
 
 
-def random_like(select):
-    """A control: as many random prefix tokens as `select` marks, seeded by the case."""
+def multi(harness, prepared):
+    """Every token of a word that Qwen splits into two or more pieces."""
+    text, count = prepared.case.prompt, len(prepared.target_ids)
+    target = offsets(harness.tokenizers['qwen'], text, count)
+    marked = []
+    for word in re.finditer(r"[^\W_][\w'-]*", text[:target[-1][1]]):
+        pieces = [i for i, (a, b) in enumerate(target) if b > a and a < word.end() and word.start() < b]
+        if len(pieces) > 1:
+            marked.extend(pieces)
+    return sorted(set(marked))
+
+
+def body(select):
+    """Drop the header line ("Passage 1:"): native header tokens act as a sink and confound the test."""
     def pick(harness, prepared):
-        count = len(prepared.target_ids)
-        return sorted(random.Random(prepared.case.id).sample(range(count), len(select(harness, prepared))))
+        text, count = prepared.case.prompt, len(prepared.target_ids)
+        header = text.find('\n') + 1
+        starts = [start for start, end in offsets(harness.tokenizers['qwen'], text, count)]
+        return [i for i in select(harness, prepared) if starts[i] >= header]
     return pick
 
 
-SELECTIONS = {'fractured': fractured, 'entity': entity,
-              'random_fractured': random_like(fractured), 'random_entity': random_like(entity)}
+def random_like(select):
+    """A control: as many random prefix tokens as `select` marks, seeded by the case."""
+    def pick(harness, prepared):
+        text, count = prepared.case.prompt, len(prepared.target_ids)
+        header = text.find('\n') + 1
+        starts = [start for start, end in offsets(harness.tokenizers['qwen'], text, count)]
+        pool = [i for i in range(count) if starts[i] >= header]
+        return sorted(random.Random(prepared.case.id).sample(pool, len(select(harness, prepared))))
+    return pick
+
+
+fractured, entity, multi = body(fractured), body(entity), body(multi)
+SELECTIONS = {'fractured': fractured, 'entity': entity, 'multi': multi,
+              'random_fractured': random_like(fractured), 'random_entity': random_like(entity),
+              'random_multi': random_like(multi)}
 
 
 @torch.no_grad()
@@ -59,13 +86,15 @@ def refresh(qwen, ids, features, selected):
     One forward pass over the selected tokens only. At every layer they attend causally to the
     translated K/V of the other prefix tokens and to their own fresh K/V.
     """
+    if not selected:
+        return features
     model, config = qwen.model, qwen.config
     heads, groups = config.num_key_value_heads, config.num_attention_heads // config.num_key_value_heads
     features = features.clone()
     device = features.device
-    positions = torch.tensor(selected, device=device)
+    positions = torch.tensor(selected, dtype=torch.long, device=device)
     every = torch.arange(len(ids), device=device)
-    hidden = model.embed_tokens(torch.tensor([[ids[i] for i in selected]], device=device))
+    hidden = model.embed_tokens(torch.tensor([[ids[i] for i in selected]], dtype=torch.long, device=device))
     cos, sin = model.rotary_emb(hidden, every[None])
     mask = (every[None, :] <= positions[:, None])[None, None]
     for index, layer in enumerate(model.layers):
