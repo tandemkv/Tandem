@@ -123,7 +123,29 @@ def translate(source, alignment, checkpoint, normalization, source_heads):
             hidden = torch.nn.functional.gelu(torch.einsum('brli,rlih->brlh', x, checkpoint['up']))
             y = y + torch.einsum('brlh,rlho->brlo', hidden, checkpoint['down'])
         output[batch] = y.reshape(-1, *target_mean.shape) * target_std + target_mean
+    if 'mix_down' in checkpoint:
+        output = output + mix(source, indices, checkpoint, source_mean, source_std, source_heads,
+                              target_mean.shape) * target_std
     return output.to(source.dtype)
+
+
+def mix(source, indices, checkpoint, source_mean, source_std, source_heads, shape):
+    """A residual that reads K and V of several source layers at each target token and its neighbours.
+
+    `delta` is [token, target layer, K then V dims]; it returns [token, role, layer-head, dim].
+    Per target layer: a linear bottleneck, a depthwise convolution over neighbouring tokens plus the
+    token itself, SiLU, and a projection to that layer's K and V change in normalized target units.
+    """
+    x = (source[indices.clamp(min=0)].float() - source_mean) / source_std
+    x = x.unflatten(-2, (-1, source_heads))[:, :, checkpoint['mix_layers']].flatten(1)
+    x = x * (indices >= 0)[:, None]
+    z = torch.einsum('ti,lio->lot', x, checkpoint['mix_down'])  # [target layer, width, token]
+    layers, width, count = z.shape
+    conv = checkpoint['mix_conv']
+    mixed = torch.nn.functional.conv1d(z.reshape(1, layers * width, count), conv.reshape(layers * width, 1, -1),
+                                       padding=conv.shape[-1] // 2, groups=layers * width).view(layers, width, count)
+    delta = torch.einsum('lot,lop->tlp', torch.nn.functional.silu(mixed + z), checkpoint['mix_up'])
+    return delta.unflatten(-1, (2, -1)).transpose(1, 2).reshape(count, *shape)
 
 
 def to_cache(model, features):

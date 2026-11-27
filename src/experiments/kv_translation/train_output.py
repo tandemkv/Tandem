@@ -144,6 +144,8 @@ def main():
     parser.add_argument('--accum', type=int, default=1, help='Prompts per optimizer step')
     parser.add_argument('--warmup', type=int, default=0, help='Optimizer steps of linear learning-rate warmup')
     parser.add_argument('--probes', type=int, default=0, help='Held-out bridge prompts for greedy checks')
+    parser.add_argument('--mix', type=int, default=0, help='Add a cross-token K/V residual with this bottleneck width')
+    parser.add_argument('--mix-lr', type=float, default=3e-5)
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--every', type=int, default=500, help='Validate and save this often')
     parser.add_argument('--validation', type=int, default=VALIDATION)
@@ -166,6 +168,20 @@ def main():
         down = start['down'].clone() if 'down' in start else torch.zeros(*weights.shape[:-2], up.shape[-1], weights.shape[-1])
         mapping |= {'up': torch.nn.Parameter(up.to(weights)), 'down': torch.nn.Parameter(down.to(weights))}
         groups.append({'params': [mapping['up'], mapping['down']], 'lr': args.mlp_lr})
+    if 'mix_down' in start or args.mix:  # Zero up weights: the residual map starts as the start map.
+        width = start['mix_down'].shape[-1] if 'mix_down' in start else args.mix
+        layers_read = torch.arange(3, h.smol.config.num_hidden_layers, 4)  # 8 evenly spaced SmolLM layers.
+        inputs = 2 * len(layers_read) * h.smol.config.num_key_value_heads * (
+            h.smol.config.hidden_size // h.smol.config.num_attention_heads)
+        target = h.qwen.config.num_hidden_layers
+        fresh = {'mix_layers': layers_read,
+                 'mix_down': torch.randn(target, inputs, width, generator=torch.Generator().manual_seed(0)) / inputs ** 0.5,
+                 'mix_conv': torch.zeros(target, width, 5),
+                 'mix_up': torch.zeros(target, width, weights.shape[-1] * 2)}
+        for name, value in fresh.items():
+            value = start[name].clone() if name in start else value
+            mapping[name] = value.to(weights.device) if name == 'mix_layers' else torch.nn.Parameter(value.to(weights))
+        groups.append({'params': [mapping[k] for k in ('mix_down', 'mix_conv', 'mix_up')], 'lr': args.mix_lr})
     parameters = [p for group in groups for p in group['params']]
     optimizer = torch.optim.AdamW(groups, weight_decay=0)
     schedule = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda n: min(1.0, (n + 1) / args.warmup) if args.warmup else 1.0)
@@ -222,7 +238,7 @@ def main():
             if current < best or probes:
                 state = {k: v.detach().cpu() for k, v in mapping.items() if torch.is_tensor(v)} | {
                             'coupled': coupled, 'pooling': mapping['pooling'], 'skew': args.skew, 'bridge': args.bridge,
-                            'accum': args.accum, 'warmup': args.warmup, 'mlp_lr': args.mlp_lr, 'start': args.start,
+                            'accum': args.accum, 'warmup': args.warmup, 'mix_lr': args.mix_lr, 'mlp_lr': args.mlp_lr, 'start': args.start,
                             'offset': args.offset, 'header': args.header, 'answer_only': args.answer_only, 'readout': args.readout, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current}
                 if probes:  # Keep every checkpoint: the probe and the validation KL can disagree.
                     torch.save(state, args.out / f'output-{step}.pt')
