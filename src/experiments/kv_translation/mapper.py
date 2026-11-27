@@ -17,6 +17,41 @@ def align(source_offsets, target_offsets):
     return result
 
 
+
+def overlap(source_offsets, target_offsets):
+    """Each target token's source tokens, weighted by the share of its characters each one covers."""
+    rows, first = [], 0
+    for start, end in target_offsets:
+        while first < len(source_offsets) and source_offsets[first][1] <= start:
+            first += 1
+        row, i = [], first
+        while end > start and i < len(source_offsets) and source_offsets[i][0] < end:
+            covered = min(end, source_offsets[i][1]) - max(start, source_offsets[i][0])
+            if covered > 0:
+                row.append((i, covered))
+            i += 1
+        total = sum(c for _, c in row)
+        rows.append([(i, c / total) for i, c in row])
+    return rows
+
+
+def overlap_alignment(text, tokenizers, source_count, target_count):
+    """Overlap weights for the first source_count and target_count tokens of text."""
+    offsets = {name: tok(text, add_special_tokens=False, return_offsets_mapping=True).offset_mapping
+               for name, tok in tokenizers.items()}
+    return overlap(offsets['smol'][:source_count], offsets['qwen'][:target_count])
+
+
+def pool(source, rows):
+    """Source features pooled onto target tokens by overlap weights. Tokens with no overlap get -1."""
+    weights = torch.zeros(len(rows), len(source), device=source.device)
+    for t, row in enumerate(rows):
+        for i, w in row:
+            weights[t, i] = w
+    pooled = (weights @ source.flatten(1).float()).view(len(rows), *source.shape[1:]).to(source.dtype)
+    return pooled, [t if row else -1 for t, row in enumerate(rows)]
+
+
 def split_prompt(text, tokenizers, marker='\n\nQuestion: '):
     """Split at the last shared token boundary before the marker. The prefix is translated."""
     boundary = text.rfind(marker)
@@ -70,6 +105,8 @@ def translate(source, alignment, checkpoint, normalization, source_heads):
     source_mean, source_std, target_mean, target_std = (
         normalization[k] for k in ('source_mean', 'source_std', 'target_mean', 'target_std')
     )
+    if alignment and isinstance(alignment[0], list):  # Overlap rows: pool the source onto target tokens.
+        source, alignment = pool(source, alignment)
     if any(position < -1 or position >= len(source) for position in alignment):
         raise ValueError('Alignment points outside the source cache')
     output = target_mean.expand(len(alignment), *target_mean.shape).clone()

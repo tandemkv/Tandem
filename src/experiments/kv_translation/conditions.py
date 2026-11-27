@@ -1,7 +1,7 @@
 """Ways to build the Qwen prefix cache for a case. Each returns unrotated K/V features or None."""
 import torch
 
-from mapper import capture, split_prompt, translate
+from mapper import capture, overlap_alignment, split_prompt, translate
 from refresh import SELECTIONS, refresh
 
 
@@ -13,6 +13,10 @@ class Prepared:
         self.source_ids, self.target_ids, self.suffix, self.alignment = split_prompt(
             case.prompt, harness.tokenizers, case.split_at)
         self.source = capture(harness.smol, self.source_ids)
+        self.overlap = overlap_alignment(case.prompt, harness.tokenizers, len(self.source_ids), len(self.target_ids))
+
+    def alignment_for(self, checkpoint):
+        return self.overlap if checkpoint.get('pooling') == 'overlap' else self.alignment
 
 
 def question_only(harness, prepared):
@@ -21,7 +25,8 @@ def question_only(harness, prepared):
 
 def translated(name):
     def build(harness, prepared):
-        return translate(prepared.source, prepared.alignment, harness.checkpoints[name],
+        checkpoint = harness.checkpoints[name]
+        return translate(prepared.source, prepared.alignment_for(checkpoint), checkpoint,
                          harness.normalization, harness.smol.config.num_key_value_heads)
     return build
 
