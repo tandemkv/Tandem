@@ -34,6 +34,12 @@ CHECKPOINTS = {  # name: (dataset path, sha256, dataset revision)
     'output2': ('experiments/output2-20261126-143528/output.pt',  # output continued on 11900 unseen prompts
                 'eb6919b080a1e8f96c5a532db587421e0fbf3f0398031ac22050a827e4b6e151',
                 '9a3f22df8ba069b957594531eaa341177a81b33f'),
+    'output3': ('experiments/output3h0-20261127-051005/output.pt',  # output2, second pass of 4000 steps
+                'aaf0ba9d48aab059a27873a9b4ef97af5a21b4063fc0a79fea676d7e95736ea7',
+                '2321becd0b5c976ce8761734f16d6ce9e8255a3c'),
+    'output3h5': ('experiments/output3h5-20261127-051005/output.pt',  # the same, with 5 native header tokens
+                  '7f9bfcb779f26ce5428e92446387903a1de36e615b7bda7180c6ae6389e1ca47',
+                  '62b7d01e4be495f4e6fc86fdbfdb5f323359673f'),
 }
 MAX_NEW_TOKENS = 32
 
