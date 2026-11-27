@@ -2,7 +2,7 @@
 import torch
 
 from mapper import capture, overlap_alignment, split_prompt, translate
-from refresh import SELECTIONS, refresh
+from refresh import FRACTIONS, SELECTIONS, refresh
 
 
 class Prepared:
@@ -134,6 +134,9 @@ CONDITIONS = {
     'refresh_random_entity_output3': refreshed('output3', 'random_entity'),
     'refresh_multi_output3': refreshed('output3', 'multi'),
     'refresh_random_multi_output3': refreshed('output3', 'random_multi'),
+    **{f'{kind}_{name}{p}_output3': build('output3', f'{name}{p}') for p in FRACTIONS
+       for kind, build in (('oracle', column_oracle), ('refresh', refreshed))
+       for name in ('scattered', 'lead', 'hub')},
     'permuted_distilled': permuted('distilled'),
     'native_keys_distilled': native_part('distilled', 0),
     'native_values_distilled': native_part('distilled', 1),
