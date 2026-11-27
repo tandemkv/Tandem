@@ -153,6 +153,9 @@ CONDITIONS = {
        for name in ('scattered', 'lead', 'hub')},
     **{f'masked_scattered{p}_output3': masked_oracle('output3', f'scattered{p}') for p in FRACTIONS},
     'masked_scattered0_output3': masked_oracle('output3', 'scattered0'),
+    **{f'{kind}_{name}_output3': build('output3', name)
+       for kind, build in (('oracle', column_oracle), ('masked', masked_oracle))
+       for name in ('scattered100', 'hscattered75', 'hscattered100', 'hlead33', 'hsentence', 'sentence')},
     'permuted_distilled': permuted('distilled'),
     'native_keys_distilled': native_part('distilled', 0),
     'native_values_distilled': native_part('distilled', 1),

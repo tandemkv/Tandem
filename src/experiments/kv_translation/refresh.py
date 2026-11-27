@@ -143,8 +143,34 @@ SELECTIONS = {'fractured': fractured, 'entity': entity, 'multi': multi,
               'random_multi': random_like(multi)}
 FRACTIONS = (15, 33, 50, 75)
 SELECTIONS['scattered0'] = scattered(0.0)
+SELECTIONS['scattered100'] = scattered(1.0)
+
+
+def sentence(harness, prepared):
+    """The body up to the end of its first sentence after the title line."""
+    text, tokens = prepared.case.prompt, body_tokens(harness, prepared)
+    starts = [start for start, end in offsets(harness.tokenizers['qwen'], text, len(prepared.target_ids))]
+    title = text.find('\n', text.find('\n') + 1) + 1
+    end = min((i for i in (text.find('. ', title), text.find('.\n', title)) if i >= 0), default=len(text)) + 1
+    return [i for i in tokens if starts[i] < end]
+
+
+def with_header(select):
+    """The selection plus the header line, so a lead selection is one contiguous native prefix."""
+    def pick(harness, prepared):
+        body = set(body_tokens(harness, prepared))
+        header = [i for i in range(len(prepared.target_ids)) if i not in body]
+        return sorted(set(header) | set(select(harness, prepared)))
+    return pick
+
+
 SELECTIONS |= {f'{name}{p}': make(p / 100) for p in FRACTIONS
                for name, make in (('scattered', scattered), ('lead', lead), ('hub', hub))}
+
+
+SELECTIONS['sentence'] = sentence
+SELECTIONS |= {f'h{name}': with_header(SELECTIONS[name])
+               for name in ('scattered75', 'scattered100', 'lead33', 'sentence')}
 
 
 @torch.no_grad()
