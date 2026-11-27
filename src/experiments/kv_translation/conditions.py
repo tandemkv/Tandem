@@ -51,6 +51,15 @@ def native_part(name, role):
     return build
 
 
+def native_header(name, count):
+    """The translation with its first tokens computed by Qwen itself, which causality makes exact and cheap."""
+    def build(harness, prepared):
+        features = translated(name)(harness, prepared).clone()
+        features[:count] = capture(harness.qwen, prepared.target_ids[:count]).to(features.dtype)
+        return features
+    return build
+
+
 CONDITIONS = {
     'question_only': question_only,
     'ridge': translated('ridge'),
@@ -58,6 +67,8 @@ CONDITIONS = {
     'keyfit': translated('keyfit'),
     'output': translated('output'),
     'output2': translated('output2'),
+    'header1_output2': native_header('output2', 1),
+    'header5_output2': native_header('output2', 5),
     'permuted_distilled': permuted('distilled'),
     'native_keys_distilled': native_part('distilled', 0),
     'native_values_distilled': native_part('distilled', 1),
