@@ -60,8 +60,18 @@ def native_header(name, count):
     return build
 
 
+def native(dtype=None):
+    """Control: Qwen's own prefix K/V, optionally rounded through dtype, to bound what any map can reach."""
+    def build(harness, prepared):
+        features = capture(harness.qwen, prepared.target_ids)
+        return features.to(dtype).to(features.dtype) if dtype else features
+    return build
+
+
 CONDITIONS = {
     'question_only': question_only,
+    'native': native(),
+    'native_bf16': native(torch.bfloat16),
     'ridge': translated('ridge'),
     'distilled': translated('distilled'),
     'keyfit': translated('keyfit'),
