@@ -10,6 +10,8 @@
 Unlike train_keys.py, the loss runs through every Qwen layer, so errors that compound across layers count.
 The loss is KL from native to translated next-token distributions over the question and native answer.
 Qwen stays frozen; gradients reach the map through the translated cache.
+--readout adds the per-layer readout loss: under native queries, each layer's attention output over the
+translated prefix and native suffix should match the native one (normalized squared error, layer mean).
 
   train_output.py --start keyfit --steps 4000 --out DIR   -> DIR/output.pt, DIR/log.jsonl
 """
@@ -24,7 +26,7 @@ import harness
 from conditions import Prepared
 from mapper import capture, to_cache, translate
 from run import git_commit
-from train_keys import VALIDATION, train_cases
+from train_keys import VALIDATION, attention, native_queries, rotate, train_cases, unrotated_keys
 
 
 def logits(h, ids, cache=None):
@@ -40,7 +42,7 @@ class Example:
     """Source K/V and native log-probabilities over the question and native answer for one prompt."""
 
     @torch.no_grad()
-    def __init__(self, h, case, device, header=0, answer_only=False):
+    def __init__(self, h, case, device, header=0, answer_only=False, readout=False):
         p = Prepared(h, case)
         native, _ = h.generate(p.target_ids + p.suffix)
         self.ids = p.suffix + native['tokens'][:-1]
@@ -50,15 +52,37 @@ class Example:
             teacher = teacher[len(p.suffix) - 1:]
         self.header = capture(h.qwen, p.target_ids[:header]).to(device) if header else None
         self.tensors = [t.to(device) for t in (p.source, teacher)]
+        self.readout = None
+        if readout:  # Native suffix queries, and native rotated keys and values, per layer.
+            full = p.target_ids + self.ids
+            queries, _ = native_queries(h, full)
+            native = capture(h.qwen, full)
+            self.prefix = len(p.target_ids)
+            self.readout = [t.to(device) for t in (queries[:, :, self.prefix:], rotate(h, unrotated_keys(h, native[:, 0])),
+                                                   unrotated_keys(h, native[:, 1]))]
 
 
-def loss(h, example, mapping):
+def readout_error(h, example, features):
+    queries, keys, values = example.readout
+
+    def output(k, v):
+        weights = attention(queries, k).exp()
+        return weights @ v.repeat_interleave(queries.shape[1] // v.shape[1], dim=1)
+
+    target = output(keys, values)
+    k = torch.cat((rotate(h, unrotated_keys(h, features[:, 0].float())), keys[:, :, example.prefix:]), dim=2)
+    v = torch.cat((unrotated_keys(h, features[:, 1].float()), values[:, :, example.prefix:]), dim=2)
+    return (((output(k, v) - target) ** 2).mean((1, 2, 3)) / (target ** 2).mean((1, 2, 3))).mean()
+
+
+def loss(h, example, mapping, readout=0.0):
     source, teacher = (t.to(h.device) for t in example.tensors)
     features = translate(source, example.alignment, mapping, h.normalization, h.smol.config.num_key_value_heads)
     if example.header is not None:  # The first prefix tokens come from Qwen itself, as in native_header.
         features = torch.cat([example.header.to(features), features[len(example.header):]])
     student = logits(h, example.ids, to_cache(h.qwen, features))[-len(teacher):].float().log_softmax(-1)
-    return (teacher.exp() * (teacher - student)).sum(-1).mean()
+    kl = (teacher.exp() * (teacher - student)).sum(-1).mean()
+    return kl + readout * readout_error(h, example, features) if readout else kl
 
 
 def main():
@@ -71,6 +95,7 @@ def main():
     parser.add_argument('--answer-only', action='store_true', help='Fit only the positions that predict the answer')
     parser.add_argument('--mlp', type=int, default=0, help='Add a nonlinear residual with this hidden width')
     parser.add_argument('--mlp-lr', type=float, default=1e-4)
+    parser.add_argument('--readout', type=float, default=0.0, help='Weight of the per-layer readout loss')
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--every', type=int, default=500, help='Validate and save this often')
     parser.add_argument('--validation', type=int, default=VALIDATION)
@@ -110,11 +135,11 @@ def main():
     running = []
     for step, case in enumerate(fit[args.offset:args.offset + args.steps], 1):
         try:
-            example = Example(h, case, h.device, args.header, args.answer_only)
+            example = Example(h, case, h.device, args.header, args.answer_only, args.readout > 0)
         except ValueError as error:  # The prompt has no clean shared split for both tokenizers.
             print(f'skip {case.id}: {error}', flush=True)
             continue
-        value = loss(h, example, mapping)
+        value = loss(h, example, mapping, args.readout)
         optimizer.zero_grad(set_to_none=True)
         value.backward()
         torch.nn.utils.clip_grad_norm_(parameters, 1.0, error_if_nonfinite=True)
@@ -128,7 +153,7 @@ def main():
                 best = current
                 torch.save({k: v.detach().cpu() for k, v in mapping.items() if torch.is_tensor(v)} | {
                             'coupled': coupled, 'mlp_lr': args.mlp_lr, 'start': args.start,
-                            'offset': args.offset, 'header': args.header, 'answer_only': args.answer_only, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
+                            'offset': args.offset, 'header': args.header, 'answer_only': args.answer_only, 'readout': args.readout, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
                            args.out / 'output.pt')
     print(f'best validation output KL {best:.4f}')
 
