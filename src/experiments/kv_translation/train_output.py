@@ -13,6 +13,8 @@ Qwen stays frozen; gradients reach the map through the translated cache.
 --skew fits the answer span mode-seeking: 0.3 forward + 0.7 reverse KL, each answer position weighted by
 1 + 4 JSD(native with the prefix || native without it), plus 0.25 forward KL on the suffix positions.
 --bridge mixes in HotpotQA train prompts in the bridge format; --accum and --warmup average gradients.
+--probes holds out bridge prompts and checks greedy answers on them at each validation: entity match with
+native and top-1 on passage-1-dependent answer tokens. The best checkpoint is then picked by entity match.
 --readout adds the per-layer readout loss: under native queries, each layer's attention output over the
 translated prefix and native suffix should match the native one (normalized squared error, layer mean).
 
@@ -30,6 +32,7 @@ import harness
 from conditions import Prepared
 from data import bridge_train_cases
 from mapper import capture, to_cache, translate
+from metrics import entities
 from run import git_commit
 from train_keys import VALIDATION, attention, native_queries, rotate, train_cases, unrotated_keys
 
@@ -51,6 +54,7 @@ class Example:
         p = Prepared(h, case)
         native, _ = h.generate(p.target_ids + p.suffix)
         self.ids = p.suffix + native['tokens'][:-1]
+        self.native = native['answer']
         self.alignments = {'align': p.alignment, 'overlap': p.overlap}
         self.answer = len(p.suffix) - 1  # The first teacher position that predicts an answer token.
         teacher = logits(h, p.target_ids + self.ids)[-len(self.ids):].float().log_softmax(-1)
@@ -88,6 +92,23 @@ def readout_error(h, example, features):
     return (((output(k, v) - target) ** 2).mean((1, 2, 3)) / (target ** 2).mean((1, 2, 3))).mean()
 
 
+@torch.no_grad()
+def probe(h, probes, mapping):
+    """Greedy entity match with native, and top-1 on answer positions that depend on passage 1 (w >= 1.5)."""
+    matched, hits, total = 0, 0, 0
+    for example in probes:
+        source, teacher = (t.to(h.device) for t in example.tensors)
+        features = translate(source, example.alignments[mapping.get('pooling', 'align')], mapping, h.normalization,
+                             h.smol.config.num_key_value_heads)
+        student = logits(h, example.ids, to_cache(h.qwen, features))[example.answer:]
+        needed = example.weights.to(h.device) >= 1.5
+        hits += (student.argmax(-1) == teacher[example.answer:].argmax(-1))[needed].sum().item()
+        total += needed.sum().item()
+        answer, _ = h.generate(example.ids[:example.answer + 1], to_cache(h.qwen, features))
+        matched += entities(answer['answer']) == entities(example.native)
+    return matched / len(probes), hits / max(total, 1)
+
+
 def loss(h, example, mapping, readout=0.0, skew=False):
     source, teacher = (t.to(h.device) for t in example.tensors)
     alignment = example.alignments[mapping.get('pooling', 'align')]
@@ -122,6 +143,7 @@ def main():
     parser.add_argument('--bridge', type=float, default=0.0, help='Share of prompts in the bridge format')
     parser.add_argument('--accum', type=int, default=1, help='Prompts per optimizer step')
     parser.add_argument('--warmup', type=int, default=0, help='Optimizer steps of linear learning-rate warmup')
+    parser.add_argument('--probes', type=int, default=0, help='Held-out bridge prompts for greedy checks')
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--every', type=int, default=500, help='Validate and save this often')
     parser.add_argument('--validation', type=int, default=VALIDATION)
@@ -149,21 +171,32 @@ def main():
     schedule = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda n: min(1.0, (n + 1) / args.warmup) if args.warmup else 1.0)
     fit, held = train_cases()
     if args.bridge:  # A fixed mix: each prompt is a bridge prompt with probability --bridge.
-        bridge, plain = iter(bridge_train_cases()[args.offset:]), iter(fit[args.offset:])
+        bridge, plain = iter(bridge_train_cases()[args.offset:-args.probes or None]), iter(fit[args.offset:])
         choose = random.Random(20261127)
         fit = [next(bridge) if choose.random() < args.bridge else next(plain) for _ in range(args.steps)]
     else:
         fit = fit[args.offset:args.offset + args.steps]
     held = [Example(h, case, 'cpu', args.header, args.answer_only) for case in held[:args.validation]]
+    probes = []
+    for case in bridge_train_cases()[-args.probes:] if args.probes else []:
+        try:
+            probes.append(Example(h, case, 'cpu', skew=True))
+        except ValueError:
+            pass
     log = (args.out / 'log.jsonl').open('a')
 
     def validate(step):
         with torch.no_grad():
             value = sum(loss(h, e, mapping).item() for e in held) / len(held)
-        log.write(json.dumps({'step': step, 'validation': value, 'time': time.time()}) + '\n')
+        record = {'step': step, 'validation': value, 'time': time.time()}
+        if probes:
+            record['probe_entities'], record['probe_p1_top1'] = probe(h, probes, mapping)
+        log.write(json.dumps(record) + '\n')
         log.flush()
-        print(f'step {step} validation output KL {value:.4f}', flush=True)
-        return value
+        print(f'step {step} validation output KL {value:.4f}' + (
+            f" probe entities {record['probe_entities']:.3f} p1 top1 {record['probe_p1_top1']:.3f}" if probes else ''),
+            flush=True)
+        return -record['probe_entities'] if probes else value
 
     best = validate(0)
     running = []
@@ -186,14 +219,17 @@ def main():
             print(f'step {step} train output KL {sum(running) / len(running):.4f}', flush=True)
             running.clear()
             current = validate(step)
-            if current < best:
-                best = current
-                torch.save({k: v.detach().cpu() for k, v in mapping.items() if torch.is_tensor(v)} | {
+            if current < best or probes:
+                state = {k: v.detach().cpu() for k, v in mapping.items() if torch.is_tensor(v)} | {
                             'coupled': coupled, 'pooling': mapping['pooling'], 'skew': args.skew, 'bridge': args.bridge,
                             'accum': args.accum, 'warmup': args.warmup, 'mlp_lr': args.mlp_lr, 'start': args.start,
-                            'offset': args.offset, 'header': args.header, 'answer_only': args.answer_only, 'readout': args.readout, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
-                           args.out / 'output.pt')
-    print(f'best validation output KL {best:.4f}')
+                            'offset': args.offset, 'header': args.header, 'answer_only': args.answer_only, 'readout': args.readout, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current}
+                if probes:  # Keep every checkpoint: the probe and the validation KL can disagree.
+                    torch.save(state, args.out / f'output-{step}.pt')
+                if current < best:
+                    best = current
+                    torch.save(state, args.out / 'output.pt')
+    print(f'best validation {abs(best):.4f}')
 
 
 if __name__ == '__main__':
