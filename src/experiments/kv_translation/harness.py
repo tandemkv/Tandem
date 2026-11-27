@@ -31,6 +31,9 @@ CHECKPOINTS = {  # name: (dataset path, sha256, dataset revision)
     'output': ('experiments/output-20261125-090640/output.pt',  # train_output.py from keyfit, 4000 steps
                '13e2a0a5c5dda74d2d002ca09a35133131eb7ed52833487f8af194581f2aff07',
                '9309f231d36c4265856d18d19748944deb6285ca'),
+    'output2': ('experiments/output2-20261126-143528/output.pt',  # output continued on 11900 unseen prompts
+                'eb6919b080a1e8f96c5a532db587421e0fbf3f0398031ac22050a827e4b6e151',
+                '9a3f22df8ba069b957594531eaa341177a81b33f'),
 }
 MAX_NEW_TOKENS = 32
 
