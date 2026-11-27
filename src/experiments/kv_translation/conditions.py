@@ -2,6 +2,7 @@
 import torch
 
 from mapper import capture, split_prompt, translate
+from refresh import SELECTIONS, refresh
 
 
 class Prepared:
@@ -71,6 +72,24 @@ def native_layers(name, first, last):
     return build
 
 
+def column_oracle(name, selection):
+    """Diagnostic: native Qwen K/V in every layer for the selected prefix tokens, translated elsewhere."""
+    def build(harness, prepared):
+        mixed = translated(name)(harness, prepared).clone()
+        selected = torch.tensor(SELECTIONS[selection](harness, prepared), dtype=torch.long, device=mixed.device)
+        mixed[selected] = capture(harness.qwen, prepared.target_ids)[selected].to(mixed.dtype)
+        return mixed
+    return build
+
+
+def refreshed(name, selection):
+    """Deployable: Qwen recomputes the selected prefix tokens over the translated cache of the rest."""
+    def build(harness, prepared):
+        return refresh(harness.qwen, prepared.target_ids, translated(name)(harness, prepared),
+                       SELECTIONS[selection](harness, prepared))
+    return build
+
+
 def native(dtype=None):
     """Control: Qwen's own prefix K/V, optionally rounded through dtype, to bound what any map can reach."""
     def build(harness, prepared):
@@ -98,6 +117,14 @@ CONDITIONS = {
     'native_values_output3': native_part('output3', 1),
     'native_early_output3': native_layers('output3', 0, 12),
     'native_late_output3': native_layers('output3', 12, 24),
+    'oracle_fractured_output3': column_oracle('output3', 'fractured'),
+    'oracle_entity_output3': column_oracle('output3', 'entity'),
+    'oracle_random_fractured_output3': column_oracle('output3', 'random_fractured'),
+    'oracle_random_entity_output3': column_oracle('output3', 'random_entity'),
+    'refresh_fractured_output3': refreshed('output3', 'fractured'),
+    'refresh_entity_output3': refreshed('output3', 'entity'),
+    'refresh_random_fractured_output3': refreshed('output3', 'random_fractured'),
+    'refresh_random_entity_output3': refreshed('output3', 'random_entity'),
     'permuted_distilled': permuted('distilled'),
     'native_keys_distilled': native_part('distilled', 0),
     'native_values_distilled': native_part('distilled', 1),
