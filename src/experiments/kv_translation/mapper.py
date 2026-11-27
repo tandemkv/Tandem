@@ -78,6 +78,8 @@ def translate(source, alignment, checkpoint, normalization, source_heads):
     for batch in valid.split(1024):  # The map runs in float32 even when the models use bfloat16.
         x = (source[indices[batch]].float() - source_mean) / source_std
         x = x.unflatten(-2, (-1, source_heads))[:, :, checkpoint['layers']].flatten(-3)
+        if checkpoint.get('coupled'):  # Each of K and V reads both: its own features, then the other's.
+            x = torch.cat((x, x.flip(1)), dim=-1)
         x = torch.cat((x, torch.ones_like(x[..., :1])), dim=-1)
         y = torch.einsum('brli,rlio->brlo', x, checkpoint['weights'])
         output[batch] = y.reshape(-1, *target_mean.shape) * target_std + target_mean

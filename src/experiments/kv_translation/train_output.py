@@ -50,9 +50,9 @@ class Example:
         self.tensors = [t.to(device) for t in (p.source, teacher)]
 
 
-def loss(h, example, weights, layers):
+def loss(h, example, weights, layers, coupled=False):
     source, teacher = (t.to(h.device) for t in example.tensors)
-    features = translate(source, example.alignment, {'layers': layers, 'weights': weights}, h.normalization,
+    features = translate(source, example.alignment, {'layers': layers, 'weights': weights, 'coupled': coupled}, h.normalization,
                          h.smol.config.num_key_value_heads)
     if example.header is not None:  # The first prefix tokens come from Qwen itself, as in native_header.
         features = torch.cat([example.header.to(features), features[len(example.header):]])
@@ -66,6 +66,7 @@ def main():
     parser.add_argument('--steps', type=int, default=4000)
     parser.add_argument('--offset', type=int, default=0, help='Skip this many training prompts, to continue a run')
     parser.add_argument('--header', type=int, default=0, help='Train with this many native leading prefix tokens')
+    parser.add_argument('--coupled', action='store_true', help='Let K and V each read both source K and V')
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--every', type=int, default=500, help='Validate and save this often')
     parser.add_argument('--validation', type=int, default=VALIDATION)
@@ -77,7 +78,10 @@ def main():
     for model in h.models.values():
         model.requires_grad_(False)
     start = h.checkpoints[args.start]
-    weights, layers = torch.nn.Parameter(start['weights'].clone()), start['layers']
+    weights, layers, coupled = start['weights'].clone(), start['layers'], args.coupled or start.get('coupled', False)
+    if coupled and not start.get('coupled'):  # Zero cross weights: the coupled map starts as the start map.
+        weights = torch.cat((weights[..., :-1, :], torch.zeros_like(weights[..., :-1, :]), weights[..., -1:, :]), -2)
+    weights = torch.nn.Parameter(weights)
     optimizer = torch.optim.AdamW([weights], lr=args.lr, weight_decay=0)
     fit, held = train_cases()
     held = [Example(h, case, 'cpu', args.header) for case in held[:args.validation]]
@@ -85,7 +89,7 @@ def main():
 
     def validate(step):
         with torch.no_grad():
-            value = sum(loss(h, e, weights, layers).item() for e in held) / len(held)
+            value = sum(loss(h, e, weights, layers, coupled).item() for e in held) / len(held)
         log.write(json.dumps({'step': step, 'validation': value, 'time': time.time()}) + '\n')
         log.flush()
         print(f'step {step} validation output KL {value:.4f}', flush=True)
@@ -99,7 +103,7 @@ def main():
         except ValueError as error:  # The prompt has no clean shared split for both tokenizers.
             print(f'skip {case.id}: {error}', flush=True)
             continue
-        value = loss(h, example, weights, layers)
+        value = loss(h, example, weights, layers, coupled)
         optimizer.zero_grad(set_to_none=True)
         value.backward()
         torch.nn.utils.clip_grad_norm_([weights], 1.0, error_if_nonfinite=True)
@@ -112,7 +116,7 @@ def main():
             if current < best:
                 best = current
                 torch.save({'weights': weights.detach().cpu(), 'layers': layers.cpu(), 'start': args.start,
-                            'offset': args.offset, 'header': args.header, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
+                            'offset': args.offset, 'header': args.header, 'coupled': coupled, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
                            args.out / 'output.pt')
     print(f'best validation output KL {best:.4f}')
 
