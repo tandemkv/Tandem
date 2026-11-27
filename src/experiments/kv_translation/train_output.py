@@ -22,7 +22,7 @@ import torch
 
 import harness
 from conditions import Prepared
-from mapper import to_cache, translate
+from mapper import capture, to_cache, translate
 from run import git_commit
 from train_keys import VALIDATION, train_cases
 
@@ -40,12 +40,13 @@ class Example:
     """Source K/V and native log-probabilities over the question and native answer for one prompt."""
 
     @torch.no_grad()
-    def __init__(self, h, case, device):
+    def __init__(self, h, case, device, header=0):
         p = Prepared(h, case)
         native, _ = h.generate(p.target_ids + p.suffix)
         self.ids = p.suffix + native['tokens'][:-1]
         self.alignment = p.alignment
         teacher = logits(h, p.target_ids + self.ids)[-len(self.ids):].float().log_softmax(-1)
+        self.header = capture(h.qwen, p.target_ids[:header]).to(device) if header else None
         self.tensors = [t.to(device) for t in (p.source, teacher)]
 
 
@@ -53,6 +54,8 @@ def loss(h, example, weights, layers):
     source, teacher = (t.to(h.device) for t in example.tensors)
     features = translate(source, example.alignment, {'layers': layers, 'weights': weights}, h.normalization,
                          h.smol.config.num_key_value_heads)
+    if example.header is not None:  # The first prefix tokens come from Qwen itself, as in native_header.
+        features = torch.cat([example.header.to(features), features[len(example.header):]])
     student = logits(h, example.ids, to_cache(h.qwen, features)).float().log_softmax(-1)
     return (teacher.exp() * (teacher - student)).sum(-1).mean()
 
@@ -62,6 +65,7 @@ def main():
     parser.add_argument('--start', choices=tuple(harness.CHECKPOINTS), default='keyfit')
     parser.add_argument('--steps', type=int, default=4000)
     parser.add_argument('--offset', type=int, default=0, help='Skip this many training prompts, to continue a run')
+    parser.add_argument('--header', type=int, default=0, help='Train with this many native leading prefix tokens')
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--every', type=int, default=500, help='Validate and save this often')
     parser.add_argument('--validation', type=int, default=VALIDATION)
@@ -76,7 +80,7 @@ def main():
     weights, layers = torch.nn.Parameter(start['weights'].clone()), start['layers']
     optimizer = torch.optim.AdamW([weights], lr=args.lr, weight_decay=0)
     fit, held = train_cases()
-    held = [Example(h, case, 'cpu') for case in held[:args.validation]]
+    held = [Example(h, case, 'cpu', args.header) for case in held[:args.validation]]
     log = (args.out / 'log.jsonl').open('a')
 
     def validate(step):
@@ -91,7 +95,7 @@ def main():
     running = []
     for step, case in enumerate(fit[args.offset:args.offset + args.steps], 1):
         try:
-            example = Example(h, case, h.device)
+            example = Example(h, case, h.device, args.header)
         except ValueError as error:  # The prompt has no clean shared split for both tokenizers.
             print(f'skip {case.id}: {error}', flush=True)
             continue
@@ -108,7 +112,7 @@ def main():
             if current < best:
                 best = current
                 torch.save({'weights': weights.detach().cpu(), 'layers': layers.cpu(), 'start': args.start,
-                            'offset': args.offset, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
+                            'offset': args.offset, 'header': args.header, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current},
                            args.out / 'output.pt')
     print(f'best validation output KL {best:.4f}')
 
