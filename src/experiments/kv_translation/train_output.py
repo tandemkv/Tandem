@@ -32,7 +32,7 @@ import torch
 import harness
 from conditions import Prepared
 from data import bridge_train_cases
-from mapper import capture, to_cache, translate
+from mapper import capture, target_embeddings, to_cache, translate
 from metrics import entities
 from run import git_commit
 from train_keys import VALIDATION, attention, native_queries, rotate, train_cases, unrotated_keys
@@ -57,6 +57,7 @@ class Example:
         self.ids = p.suffix + native['tokens'][:-1]
         self.native = native['answer']
         self.alignments = {'align': p.alignment, 'overlap': p.overlap}
+        self.target = p.target_ids
         self.answer = len(p.suffix) - 1  # The first teacher position that predicts an answer token.
         teacher = logits(h, p.target_ids + self.ids)[-len(self.ids):].float().log_softmax(-1)
         if answer_only:  # Keep the positions that predict the answer, from the last question token on.
@@ -93,6 +94,10 @@ def readout_error(h, example, features):
     return (((output(k, v) - target) ** 2).mean((1, 2, 3)) / (target ** 2).mean((1, 2, 3))).mean()
 
 
+def embed(h, example, mapping):
+    return target_embeddings(h.qwen, example.target) if 'mix_emb' in mapping else None
+
+
 @torch.no_grad()
 def probe(h, probes, mapping):
     """Greedy entity match with native, and top-1 on answer positions that depend on passage 1 (w >= 1.5)."""
@@ -100,7 +105,7 @@ def probe(h, probes, mapping):
     for example in probes:
         source, teacher = (t.to(h.device) for t in example.tensors)
         features = translate(source, example.alignments[mapping.get('pooling', 'align')], mapping, h.normalization,
-                             h.smol.config.num_key_value_heads)
+                             h.smol.config.num_key_value_heads, embed(h, example, mapping))
         student = logits(h, example.ids, to_cache(h.qwen, features))[example.answer:]
         needed = example.weights.to(h.device) >= 1.5
         hits += (student.argmax(-1) == teacher[example.answer:].argmax(-1))[needed].sum().item()
@@ -113,7 +118,8 @@ def probe(h, probes, mapping):
 def loss(h, example, mapping, readout=0.0, skew=False):
     source, teacher = (t.to(h.device) for t in example.tensors)
     alignment = example.alignments[mapping.get('pooling', 'align')]
-    features = translate(source, alignment, mapping, h.normalization, h.smol.config.num_key_value_heads)
+    features = translate(source, alignment, mapping, h.normalization, h.smol.config.num_key_value_heads,
+                         embed(h, example, mapping))
     if example.header is not None:  # The first prefix tokens come from Qwen itself, as in native_header.
         features = torch.cat([example.header.to(features), features[len(example.header):]])
     student = logits(h, example.ids, to_cache(h.qwen, features))[-len(teacher):].float().log_softmax(-1)
@@ -148,6 +154,7 @@ def main():
     parser.add_argument('--probes', type=int, default=0, help='Held-out bridge prompts for greedy checks')
     parser.add_argument('--mix', type=int, default=0, help='Add a cross-token K/V residual with this bottleneck width')
     parser.add_argument('--mix-lr', type=float, default=3e-5)
+    parser.add_argument('--embed', action='store_true', help='Let the mixing residual read the target token embedding')
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--every', type=int, default=500, help='Validate and save this often')
     parser.add_argument('--validation', type=int, default=VALIDATION)
@@ -180,10 +187,13 @@ def main():
                  'mix_down': torch.randn(target, inputs, width, generator=torch.Generator().manual_seed(0)) / inputs ** 0.5,
                  'mix_conv': torch.zeros(target, width, 5),
                  'mix_up': torch.zeros(target, width, weights.shape[-1] * 2)}
+        if args.embed or 'mix_emb' in start:  # Zero-init: adds nothing until trained.
+            fresh['mix_emb'] = torch.zeros(target, h.qwen.config.hidden_size, width)
         for name, value in fresh.items():
             value = start[name].clone() if name in start else value
             mapping[name] = value.to(weights.device) if name == 'mix_layers' else torch.nn.Parameter(value.to(weights))
-        groups.append({'params': [mapping[k] for k in ('mix_down', 'mix_conv', 'mix_up')], 'lr': args.mix_lr})
+        groups.append({'params': [mapping[k] for k in ('mix_down', 'mix_conv', 'mix_up', 'mix_emb') if k in mapping],
+                       'lr': args.mix_lr})
     parameters = [p for group in groups for p in group['params']]
     optimizer = torch.optim.AdamW(groups, weight_decay=0)
     total = max(args.steps // args.accum, 1)

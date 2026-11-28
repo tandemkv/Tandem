@@ -101,7 +101,7 @@ def capture(model, ids):
                         for role in (keys, values)], dim=1)
 
 
-def translate(source, alignment, checkpoint, normalization, source_heads):
+def translate(source, alignment, checkpoint, normalization, source_heads, embeddings=None):
     source_mean, source_std, target_mean, target_std = (
         normalization[k] for k in ('source_mean', 'source_std', 'target_mean', 'target_std')
     )
@@ -125,11 +125,11 @@ def translate(source, alignment, checkpoint, normalization, source_heads):
         output[batch] = y.reshape(-1, *target_mean.shape) * target_std + target_mean
     if 'mix_down' in checkpoint:
         output = output + mix(source, indices, checkpoint, source_mean, source_std, source_heads,
-                              target_mean.shape) * target_std
+                              target_mean.shape, embeddings) * target_std
     return output.to(source.dtype)
 
 
-def mix(source, indices, checkpoint, source_mean, source_std, source_heads, shape):
+def mix(source, indices, checkpoint, source_mean, source_std, source_heads, shape, embeddings=None):
     """A residual that reads K and V of several source layers at each target token and its neighbours.
 
     `delta` is [token, target layer, K then V dims]; it returns [token, role, layer-head, dim].
@@ -140,12 +140,22 @@ def mix(source, indices, checkpoint, source_mean, source_std, source_heads, shap
     x = x.unflatten(-2, (-1, source_heads))[:, :, checkpoint['mix_layers']].flatten(1)
     x = x * (indices >= 0)[:, None]
     z = torch.einsum('ti,lio->lot', x, checkpoint['mix_down'])  # [target layer, width, token]
+    if 'mix_emb' in checkpoint:  # The target token's own embedding, unit RMS: its exact lexical identity.
+        e = embeddings.float()
+        z = z + torch.einsum('ti,lio->lot', e / e.pow(2).mean(-1, keepdim=True).sqrt(), checkpoint['mix_emb'])
     layers, width, count = z.shape
     conv = checkpoint['mix_conv']
     mixed = torch.nn.functional.conv1d(z.reshape(1, layers * width, count), conv.reshape(layers * width, 1, -1),
                                        padding=conv.shape[-1] // 2, groups=layers * width).view(layers, width, count)
     delta = torch.einsum('lot,lop->tlp', torch.nn.functional.silu(mixed + z), checkpoint['mix_up'])
     return delta.unflatten(-1, (2, -1)).transpose(1, 2).reshape(count, *shape)
+
+
+
+@torch.no_grad()
+def target_embeddings(qwen, ids):
+    """Qwen's input embeddings for its own prefix tokens."""
+    return qwen.model.embed_tokens(torch.tensor(ids, device=qwen.device))
 
 
 def to_cache(model, features):

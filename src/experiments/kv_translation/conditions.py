@@ -1,7 +1,7 @@
 """Ways to build the Qwen prefix cache for a case. Each returns unrotated K/V features or None."""
 import torch
 
-from mapper import capture, overlap_alignment, split_prompt, translate
+from mapper import capture, overlap_alignment, split_prompt, target_embeddings, translate
 from refresh import FRACTIONS, SELECTIONS, body_tokens, refresh
 
 
@@ -26,8 +26,9 @@ def question_only(harness, prepared):
 def translated(name):
     def build(harness, prepared):
         checkpoint = harness.checkpoints[name]
+        embeddings = target_embeddings(harness.qwen, prepared.target_ids) if 'mix_emb' in checkpoint else None
         return translate(prepared.source, prepared.alignment_for(checkpoint), checkpoint,
-                         harness.normalization, harness.smol.config.num_key_value_heads)
+                         harness.normalization, harness.smol.config.num_key_value_heads, embeddings)
     return build
 
 
