@@ -109,6 +109,27 @@ def masked_oracle(name, selection):
     return build
 
 
+@torch.no_grad()
+def embedding_layers(qwen, ids, count=1):
+    """Qwen's K/V for the first `count` layers computed from the tokens alone: exact for layer 0, which
+    sees only its own token's embedding. Deployable, since it needs no prefix pass."""
+    heads = qwen.config.num_key_value_heads
+    layer = qwen.model.layers[0]
+    x = layer.input_layernorm(qwen.model.embed_tokens(torch.tensor(ids, device=qwen.device)))
+    shape = (len(ids), heads, -1)
+    return torch.stack((layer.self_attn.k_proj(x).view(shape), layer.self_attn.v_proj(x).view(shape)), dim=1)
+
+
+def exact_layer0(name):
+    """The translation with layer 0 replaced by Qwen's own, computed from the target token IDs."""
+    def build(harness, prepared):
+        features = translated(name)(harness, prepared).clone()
+        heads = harness.qwen.config.num_key_value_heads
+        features[:, :, :heads] = embedding_layers(harness.qwen, prepared.target_ids).to(features.dtype)
+        return features
+    return build
+
+
 def native(dtype=None):
     """Control: Qwen's own prefix K/V, optionally rounded through dtype, to bound what any map can reach."""
     def build(harness, prepared):
@@ -153,6 +174,7 @@ CONDITIONS = {
        for name in ('scattered', 'lead', 'hub')},
     **{f'masked_scattered{p}_output3': masked_oracle('output3', f'scattered{p}') for p in FRACTIONS},
     'masked_scattered0_output3': masked_oracle('output3', 'scattered0'),
+    'exact0_output3': exact_layer0('output3'),
     **{f'{kind}_{name}_output3': build('output3', name)
        for kind, build in (('oracle', column_oracle), ('masked', masked_oracle))
        for name in ('scattered100', 'hscattered75', 'hscattered100', 'hlead33', 'hsentence', 'sentence')},

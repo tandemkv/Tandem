@@ -22,6 +22,7 @@ translated prefix and native suffix should match the native one (normalized squa
 """
 import argparse
 import json
+import math
 import random
 import time
 from pathlib import Path
@@ -143,6 +144,7 @@ def main():
     parser.add_argument('--bridge', type=float, default=0.0, help='Share of prompts in the bridge format')
     parser.add_argument('--accum', type=int, default=1, help='Prompts per optimizer step')
     parser.add_argument('--warmup', type=int, default=0, help='Optimizer steps of linear learning-rate warmup')
+    parser.add_argument('--cosine', type=float, default=0.0, help='After warmup, decay each lr to this share of it')
     parser.add_argument('--probes', type=int, default=0, help='Held-out bridge prompts for greedy checks')
     parser.add_argument('--mix', type=int, default=0, help='Add a cross-token K/V residual with this bottleneck width')
     parser.add_argument('--mix-lr', type=float, default=3e-5)
@@ -184,7 +186,16 @@ def main():
         groups.append({'params': [mapping[k] for k in ('mix_down', 'mix_conv', 'mix_up')], 'lr': args.mix_lr})
     parameters = [p for group in groups for p in group['params']]
     optimizer = torch.optim.AdamW(groups, weight_decay=0)
-    schedule = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda n: min(1.0, (n + 1) / args.warmup) if args.warmup else 1.0)
+    total = max(args.steps // args.accum, 1)
+
+    def scale(n):
+        warm = min(1.0, (n + 1) / args.warmup) if args.warmup else 1.0
+        if not args.cosine:
+            return warm
+        done = min(1.0, max(0, n - args.warmup) / max(total - args.warmup, 1))
+        return warm * (args.cosine + (1 - args.cosine) * 0.5 * (1 + math.cos(math.pi * done)))
+
+    schedule = torch.optim.lr_scheduler.LambdaLR(optimizer, scale)
     fit, held = train_cases()
     if args.bridge:  # A fixed mix: each prompt is a bridge prompt with probability --bridge.
         bridge, plain = iter(bridge_train_cases()[args.offset:-args.probes or None]), iter(fit[args.offset:])
@@ -238,7 +249,7 @@ def main():
             if current < best or probes:
                 state = {k: v.detach().cpu() for k, v in mapping.items() if torch.is_tensor(v)} | {
                             'coupled': coupled, 'pooling': mapping['pooling'], 'skew': args.skew, 'bridge': args.bridge,
-                            'accum': args.accum, 'warmup': args.warmup, 'mix_lr': args.mix_lr, 'mlp_lr': args.mlp_lr, 'start': args.start,
+                            'accum': args.accum, 'warmup': args.warmup, 'cosine': args.cosine, 'mix_lr': args.mix_lr, 'mlp_lr': args.mlp_lr, 'start': args.start,
                             'offset': args.offset, 'header': args.header, 'answer_only': args.answer_only, 'readout': args.readout, 'steps': step, 'commit': git_commit(), 'lr': args.lr, 'validation': current}
                 if probes:  # Keep every checkpoint: the probe and the validation KL can disagree.
                     torch.save(state, args.out / f'output-{step}.pt')
